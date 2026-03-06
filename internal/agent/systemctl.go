@@ -114,7 +114,7 @@ func executeAgent(ctx context.Context, config SupervisorConfig, prompt string) (
 	}()
 
 	// Execute CLI with timeout
-	exitCode, err := config.Executor.Execute(execCtx, config.CLIName, config.AgentID, prompt, config.ProjectRoot)
+	exitCode, err := config.Executor.Execute(execCtx, config.CLIName, config.AgentID, prompt, config.ProjectRoot, config.AutoApprove)
 
 	// Stop heartbeat
 	cancelHeartbeat()

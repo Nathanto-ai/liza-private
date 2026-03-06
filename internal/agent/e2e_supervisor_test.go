@@ -64,7 +64,7 @@ func NewScenarioExecutor(bb *db.Blackboard, steps ...StepFunc) *ScenarioExecutor
 	}
 }
 
-func (se *ScenarioExecutor) Execute(ctx context.Context, cliName, agentID, prompt, projectRoot string) (int, error) {
+func (se *ScenarioExecutor) Execute(ctx context.Context, cliName, agentID, prompt, projectRoot string, autoApprove bool) (int, error) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 

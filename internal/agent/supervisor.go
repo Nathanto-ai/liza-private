@@ -26,6 +26,7 @@ type SupervisorConfig struct {
 	SpecsDir         string // For prompt building
 	CLIName          string // "claude", "codex", "gemini", "mistral", "kimi"
 	Interactive      bool   // Print prompt location, don't execute
+	AutoApprove      bool   // Skip CLI permission prompts (--dangerously-skip-permissions)
 	InitialTask      string // Optional task ID to resume
 	Executor         CLIExecutor
 	ExecutionTimeout time.Duration // Max time for agent execution before timeout
@@ -240,7 +241,7 @@ func stringOrEmpty(s *string) string {
 
 // CLIExecutor interface for testing (mock vs real CLI)
 type CLIExecutor interface {
-	Execute(ctx context.Context, cliName string, agentID string, prompt string, projectRoot string) (exitCode int, err error)
+	Execute(ctx context.Context, cliName string, agentID string, prompt string, projectRoot string, autoApprove bool) (exitCode int, err error)
 	// ExecuteInteractive launches the CLI without a prompt arg, with stdin connected,
 	// so the user can paste the prompt manually. Used by -i (interactive) mode.
 	ExecuteInteractive(ctx context.Context, cliName string, projectRoot string) (exitCode int, err error)
@@ -256,7 +257,7 @@ func NewDefaultCLIExecutor(outputsDir string) *DefaultCLIExecutor {
 	return &DefaultCLIExecutor{outputsDir: outputsDir}
 }
 
-func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentID string, prompt string, projectRoot string) (int, error) {
+func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentID string, prompt string, projectRoot string, autoApprove bool) (int, error) {
 	// Map CLI names (mistral -> vibe)
 	actualCLI := cliName
 	if cliName == "mistral" {
@@ -277,6 +278,9 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 	switch actualCLI {
 	case "claude":
 		args := []string{"-p"}
+		if autoApprove {
+			args = append(args, "--dangerously-skip-permissions")
+		}
 		if d.outputsDir != "" {
 			args = append(args, "--verbose", "--output-format", "stream-json")
 		}
@@ -284,12 +288,18 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 		useStdinForPrompt = true
 	case "codex":
 		args := []string{"exec", prompt}
+		if autoApprove {
+			args = append(args, "--full-auto")
+		}
 		if d.outputsDir != "" {
 			args = append(args, "--json")
 		}
 		cmd = exec.CommandContext(ctx, "codex", args...)
 	case "gemini":
 		args := []string{"-p"}
+		if autoApprove {
+			args = append(args, "--dangerously-skip-permissions")
+		}
 		if d.outputsDir != "" {
 			args = append(args, "--output-format", "stream-json")
 		}
@@ -297,6 +307,9 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 		useStdinForPrompt = true
 	case "vibe":
 		args := []string{"-p"}
+		if autoApprove {
+			args = append(args, "--dangerously-skip-permissions")
+		}
 		if d.outputsDir != "" {
 			args = append(args, "--output", "streaming")
 		}
@@ -304,6 +317,9 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 		useStdinForPrompt = true
 	case "kimi":
 		args := []string{"-p"}
+		if autoApprove {
+			args = append(args, "--dangerously-skip-permissions")
+		}
 		if d.outputsDir != "" {
 			args = append(args, "--verbose", "--output-format", "stream-json")
 		}

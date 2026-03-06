@@ -28,7 +28,7 @@ type MockCLICall struct {
 	Prompt  string
 }
 
-func (m *MockCLIExecutor) Execute(ctx context.Context, cliName string, agentID string, prompt string, projectRoot string) (int, error) {
+func (m *MockCLIExecutor) Execute(ctx context.Context, cliName string, agentID string, prompt string, projectRoot string, autoApprove bool) (int, error) {
 	m.mu.Lock()
 	m.Calls = append(m.Calls, MockCLICall{CLIName: cliName, AgentID: agentID, Prompt: prompt})
 	m.mu.Unlock()
@@ -67,7 +67,7 @@ func TestMockCLIExecution(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	exitCode, err := mock.Execute(ctx, "claude", "claude-1", "test prompt", "/tmp/test-project")
+	exitCode, err := mock.Execute(ctx, "claude", "claude-1", "test prompt", "/tmp/test-project", false)
 
 	if err != nil {
 		t.Errorf("Execute() error = %v", err)

@@ -915,6 +915,9 @@ Example:
   liza agent code-reviewer --agent-id code-reviewer-1 --cli claude
   liza agent planner --agent-id planner-1 --interactive
 
+  # Skip all CLI permission prompts (auto-approve everything)
+  liza agent coder --agent-id coder-1 --auto-approve
+
   # Save agent output to .liza/agent-outputs/
   liza agent coder --agent-id coder-1 --log
 
@@ -951,6 +954,7 @@ Example:
 		cliName, _ := cmd.Flags().GetString("cli")
 		interactive, _ := cmd.Flags().GetBool("interactive")
 		logOutput, _ := cmd.Flags().GetBool("log")
+		autoApprove, _ := cmd.Flags().GetBool("auto-approve")
 
 		if !slices.Contains([]string{"claude", "codex", "gemini", "mistral", "kimi"}, cliName) {
 			return fmt.Errorf("invalid CLI: %s (must be claude, codex, gemini, mistral, or kimi)", cliName)
@@ -982,6 +986,7 @@ Example:
 			SpecsDir:    specsDir,
 			CLIName:     cliName,
 			Interactive: interactive,
+			AutoApprove: autoApprove,
 			InitialTask: initialTask,
 			Executor:    agent.NewDefaultCLIExecutor(outputsDir),
 		}
@@ -1371,6 +1376,7 @@ func init() {
 	agentCmd.Flags().String("cli", "claude", "CLI to use (claude, codex, gemini, mistral)")
 	agentCmd.Flags().BoolP("interactive", "i", false, "Print prompt location, don't execute CLI")
 	agentCmd.Flags().Bool("log", false, "Save agent output to .liza/agent-outputs/ (incompatible with -i)")
+	agentCmd.Flags().Bool("auto-approve", false, "Skip CLI permission prompts (passes --dangerously-skip-permissions to the underlying CLI)")
 
 	// Recover-task command flags
 	recoverTaskCmd.Flags().Bool("force", false, "clean up git artifacts even if task is not in state")

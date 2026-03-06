@@ -86,6 +86,8 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | `planner_max_wait` | 1800 | — | — | seconds | Max planner idle before exit |
 | `reviewer_poll_interval` | 30 | — | — | seconds | Reviewer polling interval |
 | `reviewer_max_wait` | 1800 | — | — | seconds | Max reviewer idle before exit |
+| `auditor_poll_interval` | 60 | — | — | seconds | Auditor polling interval |
+| `auditor_max_wait` | 1800 | — | — | seconds | Max auditor idle before exit |
 | `max_tasks_per_run` | 10 | 1 | 50 | count | Max finding-originated tasks per run (runaway protection) |
 | `max_tasks_generated` | 20 | 1 | 100 | count | Global cap on planner-generated tasks |
 | `max_agent_iterations` | 50 | 1 | 200 | count | Max total iterations before budget halt |
@@ -98,7 +100,7 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | Code Reviewer | 30 min | Reviews should complete quickly |
 | Coder | 2 hours | Implementation takes longer |
 | Planner | 4 hours | Complex planning needs time |
-| Auditor | 30 min | Advisory review with structured findings |
+| Auditor | 1 hour | Advisory review of merged tasks with structured findings |
 
 When exceeded, supervisor kills CLI, resets agent to IDLE, retries after 5s delay.
 
