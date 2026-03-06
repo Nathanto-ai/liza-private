@@ -301,10 +301,51 @@ objectives:
           - "internal/agent/e2e_supervisor_test.go::TestE2E_S4_RunawayExit42Loop"
         status: PASS
 
+  O9_stress_tests:
+    description: "E2E stress tests exercising RunSupervisor under load, concurrency, and failure conditions"
+    criteria:
+      - id: O9.1
+        description: "S5: Sequential throughput — single coder processes 10 tasks back-to-back"
+        implementation:
+          - "internal/agent/supervisor.go (RunSupervisor loop)"
+          - "internal/ops/claim_task.go (three-phase claim)"
+        tests:
+          - "internal/agent/e2e_supervisor_test.go::TestE2E_S5_StressSequentialTasks"
+        status: PASS
+
+      - id: O9.2
+        description: "S6: Concurrent coders — 3 supervisors race for 6 tasks, no double-claim"
+        implementation:
+          - "internal/agent/supervisor.go (RunSupervisor)"
+          - "internal/ops/claim_task.go (TOCTOU race detection)"
+          - "internal/db/ (Blackboard file locking)"
+        tests:
+          - "internal/agent/e2e_supervisor_test.go::TestE2E_S6_StressConcurrentCoders"
+        status: PASS
+
+      - id: O9.3
+        description: "S7: Mixed roles — planner creates tasks, coder processes them concurrently"
+        implementation:
+          - "internal/agent/supervisor.go (RunSupervisor)"
+          - "internal/agent/workdetection.go (DetectPlannerWakeTriggers)"
+        tests:
+          - "internal/agent/e2e_supervisor_test.go::TestE2E_S7_StressMixedRoles"
+        status: PASS
+
+      - id: O9.4
+        description: "S8: Crash recovery — agent crashes (exit 1) then recovers and completes remaining tasks"
+        implementation:
+          - "internal/agent/supervisor.go (crash retry with 5s delay)"
+          - "internal/ops/claim_task.go"
+        tests:
+          - "internal/agent/e2e_supervisor_test.go::TestE2E_S8_StressCrashRecovery"
+        status: PASS
+
 # Test counts by layer:
 # Unit tests:         ~75 test cases across 6 packages
 # Integration tests:  13 cross-cutting tests (8 closed-loop + 1 exit-42 + 4 E2E scenarios)
 # True E2E tests:     4 tests invoking RunSupervisor with full loop
+# E2E stress tests:   4 tests (sequential throughput, concurrent coders, mixed roles, crash recovery)
 # E2E fixture repos:  3 (fixture_go_bugfix, fixture_spec_ambiguity, fixture_runaway)
 # CI V&V job:         .github/workflows/ci.yml (vnv job after test)
 # All new code packages: PASS
