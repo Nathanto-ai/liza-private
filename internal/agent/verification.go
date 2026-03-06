@@ -13,28 +13,29 @@ import (
 // after a coder submits work. If the task has VerifyCommands and is in
 // READY_FOR_REVIEW status, the commands are executed in the task's worktree.
 // Results are logged but do not block the workflow — the reviewer still
-// decides the final verdict.
-func runPostSubmissionVerification(ctx context.Context, bb *db.Blackboard, projectRoot, taskID string) {
+// decides the final verdict. Returns the verify.Result for observability
+// event emission, or nil if verification was skipped.
+func runPostSubmissionVerification(ctx context.Context, bb *db.Blackboard, projectRoot, taskID string) *verify.Result {
 	state, err := bb.Read()
 	if err != nil {
 		GetLogger().Warn("Failed to read state for verification", "error", err, "task_id", taskID)
-		return
+		return nil
 	}
 
 	task := state.FindTask(taskID)
 	if task == nil {
-		return
+		return nil
 	}
 
 	// Only verify tasks that reached READY_FOR_REVIEW
 	if task.Status != models.TaskStatusReadyForReview {
-		return
+		return nil
 	}
 
 	// Nothing to do without verify commands
 	if len(task.VerifyCommands) == 0 {
 		GetLogger().Info("Task has no verify_commands, skipping verification", "task_id", taskID)
-		return
+		return nil
 	}
 
 	// Determine the worktree path for this task
@@ -69,6 +70,7 @@ func runPostSubmissionVerification(ctx context.Context, bb *db.Blackboard, proje
 			"commands_total", len(task.VerifyCommands),
 			"commands_run", len(result.Results))
 	}
+	return result
 }
 
 // truncateOutput truncates a string to maxLen characters, adding an ellipsis if truncated.

@@ -5,6 +5,7 @@ import (
 
 	"github.com/liza-mas/liza/internal/observability"
 	"github.com/liza-mas/liza/internal/paths"
+	"github.com/liza-mas/liza/internal/runtime"
 )
 
 // supervisorEmitter wraps the observability.Emitter to provide a
@@ -84,4 +85,28 @@ func (se *supervisorEmitter) emitAgentExited(agentID string, exitCode int) {
 	se.Emit(observability.NewEvent(observability.EventTaskStatusChanged, "Agent exited").
 		WithAgent(agentID).
 		WithData("exit_code", fmt.Sprintf("%d", exitCode)))
+}
+
+// emitBudgetExceeded emits a BUDGET_EXCEEDED event when a budget limit is hit.
+func (se *supervisorEmitter) emitBudgetExceeded(agentID, reason string) {
+	se.Emit(observability.NewEvent(observability.EventBudgetExceeded, "Budget limit exceeded").
+		WithAgent(agentID).
+		WithData("reason", reason))
+}
+
+// emitAnomalyDetected emits an ANOMALY_DETECTED event when stagnation or
+// a no-diff retry pattern is found by the AnomalyDetector.
+func (se *supervisorEmitter) emitAnomalyDetected(agentID string, a runtime.Anomaly) {
+	se.Emit(observability.NewEvent(observability.EventAnomalyDetected, a.Description).
+		WithAgent(agentID).
+		WithData("anomaly_type", string(a.Type)).
+		WithData("severity", a.Severity))
+}
+
+// emitCrashRetry emits a TASK_STATUS_CHANGED event when a crash retry occurs.
+func (se *supervisorEmitter) emitCrashRetry(agentID, taskID string, crashes int) {
+	se.Emit(observability.NewEvent(observability.EventTaskStatusChanged, "Crash retry").
+		WithAgent(agentID).
+		WithTask(taskID).
+		WithData("consecutive_crashes", fmt.Sprintf("%d", crashes)))
 }
