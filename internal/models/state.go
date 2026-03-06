@@ -349,7 +349,7 @@ func (s *State) SprintStalled() bool {
 	return hasBlocked
 }
 
-// Agent represents an agent (coder, reviewer, planner) in the system
+// Agent represents an agent (coder, reviewer, planner, auditor) in the system
 type Agent struct {
 	Role            string         `yaml:"role"`
 	Status          AgentStatus    `yaml:"status"`
@@ -687,6 +687,8 @@ const (
 	DefaultPlannerMaxWait       = 1800 // 30 minutes
 	DefaultReviewerPollInterval = 30
 	DefaultReviewerMaxWait      = 1800 // 30 minutes
+	DefaultAuditorPollInterval  = 60
+	DefaultAuditorMaxWait       = 1800 // 30 minutes
 	DefaultExit42MaxBackoffSec  = 60
 	DefaultExit42RestartLimit   = 5
 )
@@ -723,6 +725,8 @@ type Config struct {
 	PlannerMaxWait          int            `yaml:"planner_max_wait"`
 	ReviewerPollInterval    int            `yaml:"reviewer_poll_interval"`
 	ReviewerMaxWait         int            `yaml:"reviewer_max_wait"`
+	AuditorPollInterval     int            `yaml:"auditor_poll_interval"`
+	AuditorMaxWait          int            `yaml:"auditor_max_wait"`
 	Exit42RestartThreshold  int            `yaml:"exit42_restart_threshold,omitempty"`
 	Exit42MaxBackoffSeconds int            `yaml:"exit42_max_backoff_seconds,omitempty"`
 	IntegrationBranch       string         `yaml:"integration_branch"`

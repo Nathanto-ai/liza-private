@@ -796,7 +796,7 @@ Query Types:
 
   ID shorthand:
     <task-id>                      - Show specific task (any ID format, e.g., task-1, fix-auth-bug)
-    <agent-id>                     - Show specific agent (e.g., coder-1, code-reviewer-1, planner-1)
+    <agent-id>                     - Show specific agent (e.g., coder-1, code-reviewer-1, planner-1, auditor-1)
 
 Formats:
   --format json       - JSON output
@@ -896,7 +896,7 @@ var agentCmd = &cobra.Command{
 
 The supervisor:
 - Registers the agent with collision detection
-- Polls for role-specific work (coder/reviewer/planner)
+- Polls for role-specific work (coder/reviewer/planner/auditor)
 - Claims tasks (coder/reviewer only)
 - Builds and executes prompts with the specified CLI
 - Manages heartbeats to keep lease alive
@@ -907,6 +907,7 @@ Roles:
   coder          - Claims and implements tasks
   code-reviewer  - Reviews and approves/rejects tasks
   planner        - Creates and manages task breakdown
+  auditor        - Audits code quality, architecture, and compliance
 
 Example:
   # Using --agent-id flag (recommended)
@@ -944,7 +945,7 @@ Example:
 		}
 
 		if !slices.Contains(roles.AllRuntime(), role) {
-			return fmt.Errorf("invalid role: %s (must be coder, code-reviewer, or planner)", role)
+			return fmt.Errorf("invalid role: %s (must be one of: %s)", role, strings.Join(roles.AllRuntime(), ", "))
 		}
 
 		cliName, _ := cmd.Flags().GetString("cli")

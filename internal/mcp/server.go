@@ -638,6 +638,52 @@ func (s *Server) registerMutationTools() {
 			Required: []string{"task_id", "reason", "agent_id"},
 		},
 	}, s.handleSupersede)
+
+	// liza_submit_audit_finding tool
+	s.registerTool(protocol.Tool{
+		Name:        "liza_submit_audit_finding",
+		Description: "Submit an audit finding for a task. Requires auditor role. Findings are advisory — the supervisor retains deterministic control.",
+		InputSchema: protocol.InputSchema{
+			Type: "object",
+			Properties: map[string]protocol.Property{
+				"finding_id": {
+					Type:        "string",
+					Description: "Unique finding ID (e.g., finding-1)",
+				},
+				"task_id": {
+					Type:        "string",
+					Description: "Task ID this finding relates to",
+				},
+				"severity": {
+					Type:        "string",
+					Description: "Finding severity",
+					Enum:        []string{"HIGH", "MEDIUM", "LOW"},
+				},
+				"type": {
+					Type:        "string",
+					Description: "Finding type",
+					Enum:        []string{"SPEC_MISMATCH", "MISSING_TEST", "MISSING_EDGE_CASE", "QUALITY_ISSUE"},
+				},
+				"evidence": {
+					Type:        "string",
+					Description: "Concrete evidence supporting the finding",
+				},
+				"recommended_action": {
+					Type:        "string",
+					Description: "Suggested remediation action",
+				},
+				"spec_reference": {
+					Type:        "string",
+					Description: "Specific acceptance criterion or spec section reference",
+				},
+				"agent_id": {
+					Type:        "string",
+					Description: "Auditor agent ID submitting the finding",
+				},
+			},
+			Required: []string{"finding_id", "task_id", "severity", "type", "evidence", "agent_id"},
+		},
+	}, s.handleSubmitAuditFinding)
 }
 
 // registerComplexOperations registers Phase 3 complex operation tools

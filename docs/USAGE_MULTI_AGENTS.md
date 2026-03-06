@@ -99,7 +99,7 @@ Operational reference content (blackboard fields, anomaly types, etc.) is inline
 
 **3. Start Agents (3 terminals)**
 
-Agent identity is provided via the `--agent-id` flag. IDs must follow the pattern `{role}-{number}` (e.g., `coder-1`, `code-reviewer-1`, `planner-1`).
+Agent identity is provided via the `--agent-id` flag. IDs must follow the pattern `{role}-{number}` (e.g., `coder-1`, `code-reviewer-1`, `planner-1`, `auditor-1`).
 
 Terminal 1 — Planner:
 ```bash
@@ -114,6 +114,11 @@ liza agent coder --agent-id coder-1
 Terminal 3 — Code Reviewer:
 ```bash
 liza agent code-reviewer --agent-id code-reviewer-1
+```
+
+Terminal 4 — Auditor (optional):
+```bash
+liza agent auditor --agent-id auditor-1
 ```
 
 Each agent command accepts a `--cli` flag to select the coding agent CLI: `claude` (default), `codex`, `gemini`, `mistral`, or `kimi`. For example: `liza agent coder --agent-id coder-1 --cli gemini`.

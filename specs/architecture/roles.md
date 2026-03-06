@@ -3,8 +3,8 @@
 ## Terminology
 
 **Implementation:** Role constants are defined in `internal/roles/roles.go`, which provides:
-- Runtime names (hyphenated: `coder`, `code-reviewer`, `planner`) — used in agent IDs and CLI
-- Workflow names (underscore: `coder`, `code_reviewer`) — used in YAML state
+- Runtime names (hyphenated: `coder`, `code-reviewer`, `planner`, `auditor`) — used in agent IDs and CLI
+- Workflow names (underscore: `coder`, `code_reviewer`, `planner`, `auditor`) — used in YAML state
 - Bidirectional mapping: `ToWorkflow()` and `ToRuntime()` convert between the two forms
 
 | Canonical Name | YAML Identifier | Agent ID Prefix | Agent Name Pattern |
@@ -12,6 +12,7 @@
 | Planner | `planner` | `planner-` | `planner-1`, `planner-2` |
 | Coder | `coder` | `coder-` | `coder-1`, `coder-2` |
 | Code Reviewer | `code_reviewer` | `code-reviewer-` | `code-reviewer-1`, `code-reviewer-2` |
+| Auditor | `auditor` | `auditor-` | `auditor-1`, `auditor-2` |
 
 **Usage Rules:**
 - **Prose/documentation:** Use canonical name ("Code Reviewer validates...")
@@ -19,7 +20,7 @@
 - **Agent IDs:** Use prefix form (`code-reviewer-1`, `coder-2`)
 - **Role → ID mapping:** `code_reviewer` maps to `code-reviewer-` prefix
 
-**ID Validation Regex:** `^(coder|code-reviewer|planner)-[0-9]+$`
+**ID Validation Regex:** `^(coder|code-reviewer|planner|auditor)-[0-9]+$`
 
 ## Multiple Agents Per Role
 
@@ -30,6 +31,7 @@ Running multiple agents of the same role is fully supported:
 | Coder | Yes | Each coder claims independent tasks; no coordination needed |
 | Code Reviewer | Yes | Reviewers claim independent review tasks; merge safety via working-tree-less `liza wt-merge` |
 | Planner | Yes | Multiple planners can process blocked tasks concurrently |
+| Auditor | Yes | Auditors review code quality, architecture, and compliance |
 
 **Concurrency Safety:**
 - Task claiming: File locking on `state.yaml` ensures atomic claim operations
@@ -455,7 +457,7 @@ liza agent coder --agent-id coder-1
 
 | Env Variable | Required | Format | Example |
 |--------------|----------|--------|---------|
-| `LIZA_AGENT_ID` | Yes | `{role}-{number}` | `coder-1`, `code-reviewer-2`, `planner-1` |
+| `LIZA_AGENT_ID` | Yes | `{role}-{number}` | `coder-1`, `code-reviewer-2`, `planner-1`, `auditor-1` |
 
 **Rationale:** Prevents identity collision when multiple agents spawn simultaneously. Agent cannot choose its own name — supervisor controls the namespace.
 

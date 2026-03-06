@@ -79,6 +79,17 @@ func buildPrompt(state *models.State, config SupervisorConfig, taskID string) (s
 			return "", fmt.Errorf("building planner context: %w", err)
 		}
 		prompt += context
+
+	case roles.RuntimeAuditor:
+		auditorConfig := prompts.AuditorContextConfig{
+			ProjectRoot: config.ProjectRoot,
+			AgentID:     config.AgentID,
+		}
+		context, err := prompts.BuildAuditorContext(state, auditorConfig)
+		if err != nil {
+			return "", fmt.Errorf("building auditor context: %w", err)
+		}
+		prompt += context
 	}
 
 	// Add resume context if initial task

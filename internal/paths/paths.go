@@ -25,6 +25,7 @@ const (
 
 	// Logs and reports
 	AlertsLogFileName            = "alerts.log"                // Alerts log file
+	EventsLogFileName            = "events.jsonl"              // Observability events log
 	SprintSummaryFileName        = "sprint_summary.md"         // Sprint summary report
 	CircuitBreakerReportFileName = "circuit_breaker_report.md" // Circuit breaker report
 
@@ -89,6 +90,11 @@ func (p LizaPaths) LockPath() string {
 // AlertsLogPath returns the path to the alerts log file.
 func (p LizaPaths) AlertsLogPath() string {
 	return p.get(AlertsLogFileName)
+}
+
+// EventsLogPath returns the path to the observability events log file.
+func (p LizaPaths) EventsLogPath() string {
+	return p.get(EventsLogFileName)
 }
 
 // SprintSummaryPath returns the path to the sprint summary report file.

@@ -19,7 +19,7 @@ import (
 // SupervisorConfig contains all configuration for the agent supervisor
 type SupervisorConfig struct {
 	AgentID          string
-	Role             string // roles.RuntimeCoder, roles.RuntimeCodeReviewer, roles.RuntimePlanner
+	Role             string // roles.RuntimeCoder, roles.RuntimeCodeReviewer, roles.RuntimePlanner, roles.RuntimeAuditor
 	ProjectRoot      string
 	StatePath        string
 	LogPath          string
@@ -266,14 +266,22 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 	// Build command based on CLI.
 	// Structured output flags (stream-json, --json, etc.) are only added when --log is
 	// active (outputsDir != ""), so normal runs keep human-readable terminal output.
+	//
+	// Claude-compatible CLIs (claude, kimi, gemini, vibe) receive the prompt via
+	// stdin instead of a positional argument.  This avoids the Windows cmd.exe
+	// 8191-character command-line limit which is hit when .cmd wrappers are used
+	// (e.g. kimi.cmd).  Using strings.NewReader delivers EOFafter the prompt,
+	// so the subprocess never blocks waiting for input.
 	var cmd *exec.Cmd
+	useStdinForPrompt := false // when true, prompt is piped via stdin
 	switch actualCLI {
 	case "claude":
-		args := []string{"-p", prompt}
+		args := []string{"-p"}
 		if d.outputsDir != "" {
 			args = append(args, "--verbose", "--output-format", "stream-json")
 		}
 		cmd = exec.CommandContext(ctx, "claude", args...)
+		useStdinForPrompt = true
 	case "codex":
 		args := []string{"exec", prompt}
 		if d.outputsDir != "" {
@@ -281,23 +289,26 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 		}
 		cmd = exec.CommandContext(ctx, "codex", args...)
 	case "gemini":
-		args := []string{"-p", prompt}
+		args := []string{"-p"}
 		if d.outputsDir != "" {
 			args = append(args, "--output-format", "stream-json")
 		}
 		cmd = exec.CommandContext(ctx, "gemini", args...)
+		useStdinForPrompt = true
 	case "vibe":
-		args := []string{"-p", prompt}
+		args := []string{"-p"}
 		if d.outputsDir != "" {
 			args = append(args, "--output", "streaming")
 		}
 		cmd = exec.CommandContext(ctx, "vibe", args...)
+		useStdinForPrompt = true
 	case "kimi":
-		args := []string{"-p", prompt}
+		args := []string{"-p"}
 		if d.outputsDir != "" {
 			args = append(args, "--verbose", "--output-format", "stream-json")
 		}
 		cmd = exec.CommandContext(ctx, "kimi", args...)
+		useStdinForPrompt = true
 	default:
 		return 0, fmt.Errorf("unknown CLI: %s", cliName)
 	}
@@ -305,10 +316,15 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 	// Set working directory to project root so claude can find .mcp.json and .claude/settings.json
 	cmd.Dir = projectRoot
 
-	// Don't inherit stdin - agents are autonomous and don't require input.
-	// Inheriting stdin causes the subprocess to block indefinitely waiting for EOF,
-	// preventing clean exit after work completion.
-	cmd.Stdin = nil
+	// Pipe prompt via stdin for Claude-compatible CLIs to avoid command-line
+	// length limits.  strings.NewReader delivers EOF after the prompt so the
+	// subprocess exits cleanly.  For codex the prompt is a required positional
+	// arg, so stdin stays nil to prevent indefinite blocking.
+	if useStdinForPrompt {
+		cmd.Stdin = strings.NewReader(prompt)
+	} else {
+		cmd.Stdin = nil
+	}
 
 	// Handle output: either save to file or stream to stdout/stderr.
 	// Separate buffers avoid the concurrency issue: exec.Cmd drains each pipe
@@ -385,6 +401,10 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 	bb := db.For(config.StatePath)
 	lizaPaths := paths.New(config.ProjectRoot)
 
+	// Initialize observability emitter
+	events := newSupervisorEmitter(config.ProjectRoot)
+	defer events.Close()
+
 	// Validate identity
 	if err := validateIdentity(config.AgentID, config.Role); err != nil {
 		return err
@@ -395,6 +415,7 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		return err
 	}
 	defer unregisterAgent(bb, config.AgentID)
+	events.emitAgentRegistered(config.AgentID, config.Role)
 
 	// Load config from state
 	state, err := bb.Read()
@@ -414,6 +435,8 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 			config.ExecutionTimeout = 2 * time.Hour
 		case roles.RuntimePlanner:
 			config.ExecutionTimeout = 4 * time.Hour
+		case roles.RuntimeAuditor:
+			config.ExecutionTimeout = 1 * time.Hour
 		default:
 			config.ExecutionTimeout = 2 * time.Hour
 		}
@@ -490,6 +513,7 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 				continue
 			}
 			claimedTaskID = taskID
+			events.emitTaskClaimed(config.AgentID, taskID)
 		} else if config.Role == roles.RuntimeCodeReviewer {
 			var reviewCommit string
 			taskID, _, reviewCommit, err = claimReviewerTask(config.ProjectRoot, config.AgentID, 1800, bb)
@@ -546,12 +570,16 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		switch exitCode {
 		case 0:
 			GetLogger().Info("Agent completed, checking for more work")
+			events.emitAgentExited(config.AgentID, 0)
 
 			// Log task submission if it happened (coder role only)
 			if config.Role == roles.RuntimeCoder && claimedTaskID != "" {
 				if err := logTaskSubmissionIfCompleted(bb, claimedTaskID, config.AgentID); err != nil {
 					GetLogger().Warn("Failed to log task submission", "error", err, "task_id", claimedTaskID)
 				}
+
+				// Run deterministic verification on submitted tasks
+				runPostSubmissionVerification(ctx, bb, config.ProjectRoot, claimedTaskID)
 			}
 
 			// Verify expected state changes for planner

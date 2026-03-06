@@ -31,6 +31,9 @@ func getRoleWaitConfig(state *models.State, role string) (pollInterval, maxWait 
 	case roles.RuntimeCodeReviewer:
 		pollSeconds = nonZeroOr(state.Config.ReviewerPollInterval, models.DefaultReviewerPollInterval)
 		maxWaitSeconds = nonZeroOr(state.Config.ReviewerMaxWait, models.DefaultReviewerMaxWait)
+	case roles.RuntimeAuditor:
+		pollSeconds = nonZeroOr(state.Config.AuditorPollInterval, models.DefaultAuditorPollInterval)
+		maxWaitSeconds = nonZeroOr(state.Config.AuditorMaxWait, models.DefaultAuditorMaxWait)
 	default:
 		pollSeconds = nonZeroOr(state.Config.CoderPollInterval, models.DefaultCoderPollInterval)
 		maxWaitSeconds = nonZeroOr(state.Config.CoderMaxWait, models.DefaultCoderMaxWait)
@@ -55,6 +58,8 @@ func waitForWork(ctx context.Context, bb *db.Blackboard, projectRoot string, rol
 		return waitForReviewerWork(ctx, bb, projectRoot, pollInterval, maxWait)
 	case roles.RuntimePlanner:
 		return waitForPlannerWork(ctx, bb, projectRoot, pollInterval, maxWait)
+	case roles.RuntimeAuditor:
+		return waitForAuditorWork(ctx, bb, projectRoot, pollInterval, maxWait)
 	default:
 		return false, fmt.Errorf("unknown role: %s", role)
 	}
@@ -294,4 +299,34 @@ func waitForPlannerWork(ctx context.Context, bb *db.Blackboard, projectRoot stri
 			}
 			return false, ""
 		})
+}
+
+// waitForAuditorWork waits for MERGED tasks that have no audit findings yet.
+// The auditor reviews completed work for spec compliance, quality, and coverage.
+func waitForAuditorWork(ctx context.Context, bb *db.Blackboard, projectRoot string, pollInterval, maxWait time.Duration) (bool, error) {
+	return waitForWorkEventDriven(ctx, bb, projectRoot, pollInterval, maxWait,
+		func(s *models.State) (bool, string) {
+			unaudited := countUnauditedMergedTasks(s)
+			if unaudited > 0 {
+				return true, fmt.Sprintf("Found %d merged task(s) awaiting audit", unaudited)
+			}
+			return false, ""
+		})
+}
+
+// countUnauditedMergedTasks counts MERGED tasks that have no audit findings.
+func countUnauditedMergedTasks(state *models.State) int {
+	// Build set of task IDs that already have audit findings
+	audited := make(map[string]bool, len(state.AuditFindings))
+	for _, finding := range state.AuditFindings {
+		audited[finding.TaskID] = true
+	}
+
+	count := 0
+	for _, task := range state.Tasks {
+		if task.Status == models.TaskStatusMerged && !audited[task.ID] {
+			count++
+		}
+	}
+	return count
 }

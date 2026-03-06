@@ -35,6 +35,12 @@ type ReviewerContextConfig struct {
 	AgentID     string
 }
 
+// AuditorContextConfig contains configuration for building auditor context
+type AuditorContextConfig struct {
+	ProjectRoot string
+	AgentID     string
+}
+
 // BuildBasePrompt creates the base bootstrap prompt for all agents
 func BuildBasePrompt(config BasePromptConfig) (string, error) {
 	return executeTemplate("base_prompt", config)
@@ -158,6 +164,44 @@ func BuildReviewerContext(task *models.Task, config ReviewerContextConfig) (stri
 		HasPriorRejection: hasPriorRejection(task),
 	}
 	return executeTemplate("reviewer_context", data)
+}
+
+// auditorContextData is the template data for auditor_context.tmpl
+type auditorContextData struct {
+	Config         AuditorContextConfig
+	UnauditedTasks []models.Task
+	AuditFindings  []models.AuditFinding
+	TotalMerged    int
+	TotalTasks     int
+}
+
+// BuildAuditorContext creates auditor-specific context with merged tasks to audit
+func BuildAuditorContext(state *models.State, config AuditorContextConfig) (string, error) {
+	// Build set of task IDs that already have audit findings
+	audited := make(map[string]bool, len(state.AuditFindings))
+	for _, finding := range state.AuditFindings {
+		audited[finding.TaskID] = true
+	}
+
+	var unaudited []models.Task
+	merged := 0
+	for _, task := range state.Tasks {
+		if task.Status == models.TaskStatusMerged {
+			merged++
+			if !audited[task.ID] {
+				unaudited = append(unaudited, task)
+			}
+		}
+	}
+
+	data := auditorContextData{
+		Config:         config,
+		UnauditedTasks: unaudited,
+		AuditFindings:  state.AuditFindings,
+		TotalMerged:    merged,
+		TotalTasks:     len(state.Tasks),
+	}
+	return executeTemplate("auditor_context", data)
 }
 
 // derefString returns the value pointed to by s, or "" if s is nil.
