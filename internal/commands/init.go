@@ -216,6 +216,8 @@ func InitCommand(description string, specRef string, stdin io.Reader) error {
 			PlannerMaxWait:       1800,
 			ReviewerPollInterval: 30,
 			ReviewerMaxWait:      1800,
+			AuditorPollInterval:  60,
+			AuditorMaxWait:       1800,
 			IntegrationBranch:    "integration",
 			EscalationWebhook:    nil,
 			Mode:                 models.SystemModeRunning,
