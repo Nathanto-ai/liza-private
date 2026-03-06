@@ -951,6 +951,7 @@ Example:
 		cliName, _ := cmd.Flags().GetString("cli")
 		interactive, _ := cmd.Flags().GetBool("interactive")
 		logOutput, _ := cmd.Flags().GetBool("log")
+		maxLoops, _ := cmd.Flags().GetInt("max-loops")
 
 		if !slices.Contains([]string{"claude", "codex", "gemini", "mistral", "kimi"}, cliName) {
 			return fmt.Errorf("invalid CLI: %s (must be claude, codex, gemini, mistral, or kimi)", cliName)
@@ -984,6 +985,7 @@ Example:
 			Interactive: interactive,
 			InitialTask: initialTask,
 			Executor:    agent.NewDefaultCLIExecutor(outputsDir),
+			MaxLoops:    maxLoops,
 		}
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -1371,6 +1373,8 @@ func init() {
 	agentCmd.Flags().String("cli", "claude", "CLI to use (claude, codex, gemini, mistral)")
 	agentCmd.Flags().BoolP("interactive", "i", false, "Print prompt location, don't execute CLI")
 	agentCmd.Flags().Bool("log", false, "Save agent output to .liza/agent-outputs/ (incompatible with -i)")
+	agentCmd.Flags().Int("max-loops", 0, "Maximum supervisor loop iterations before self-terminating (0 = unlimited)")
+	agentCmd.Flags().Bool("auto-approve", false, "Skip CLI permission prompts (passes --dangerously-skip-permissions to the underlying CLI)")
 
 	// Recover-task command flags
 	recoverTaskCmd.Flags().Bool("force", false, "clean up git artifacts even if task is not in state")

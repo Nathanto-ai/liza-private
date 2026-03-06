@@ -729,6 +729,9 @@ type Config struct {
 	AuditorMaxWait          int            `yaml:"auditor_max_wait"`
 	Exit42RestartThreshold  int            `yaml:"exit42_restart_threshold,omitempty"`
 	Exit42MaxBackoffSeconds int            `yaml:"exit42_max_backoff_seconds,omitempty"`
+	CrashRetryLimit         int            `yaml:"crash_retry_limit,omitempty"`
+	CrashRetryBaseDelaySec  int            `yaml:"crash_retry_base_delay_seconds,omitempty"`
+	CrashRetryMaxDelaySec   int            `yaml:"crash_retry_max_delay_seconds,omitempty"`
 	IntegrationBranch       string         `yaml:"integration_branch"`
 	EscalationWebhook       *string        `yaml:"escalation_webhook,omitempty"`
 	Mode                    SystemMode     `yaml:"mode,omitempty"`

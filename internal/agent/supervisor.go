@@ -14,6 +14,7 @@ import (
 	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/paths"
 	"github.com/liza-mas/liza/internal/roles"
+	"github.com/liza-mas/liza/internal/runtime"
 )
 
 // SupervisorConfig contains all configuration for the agent supervisor
@@ -29,6 +30,69 @@ type SupervisorConfig struct {
 	InitialTask      string // Optional task ID to resume
 	Executor         CLIExecutor
 	ExecutionTimeout time.Duration // Max time for agent execution before timeout
+	MaxLoops         int           // Max supervisor loop iterations (0 = unlimited, uses budget tracker)
+}
+
+// crashRetryTracker tracks consecutive crash exits (non-0, non-42) for a given task.
+// When the threshold is exceeded the task is transitioned to BLOCKED.
+type crashRetryTracker struct {
+	consecutiveCrashes int
+	lastTaskID         string
+	limit              int
+	baseDelay          time.Duration
+	maxDelay           time.Duration
+}
+
+const (
+	// DefaultCrashRetryLimit is the maximum number of consecutive crash retries
+	// before the supervisor transitions the task to BLOCKED.
+	DefaultCrashRetryLimit = 5
+	// DefaultCrashRetryBaseDelay is the initial delay for crash retry backoff.
+	DefaultCrashRetryBaseDelay = 5 * time.Second
+	// DefaultCrashRetryMaxDelay caps the exponential backoff for crash retries.
+	DefaultCrashRetryMaxDelay = 120 * time.Second
+)
+
+func newCrashRetryTracker(cfg models.Config) *crashRetryTracker {
+	limit := cfg.CrashRetryLimit
+	if limit <= 0 {
+		limit = DefaultCrashRetryLimit
+	}
+	baseDelay := time.Duration(cfg.CrashRetryBaseDelaySec) * time.Second
+	if baseDelay <= 0 {
+		baseDelay = DefaultCrashRetryBaseDelay
+	}
+	maxDelay := time.Duration(cfg.CrashRetryMaxDelaySec) * time.Second
+	if maxDelay <= 0 {
+		maxDelay = DefaultCrashRetryMaxDelay
+	}
+	return &crashRetryTracker{
+		limit:     limit,
+		baseDelay: baseDelay,
+		maxDelay:  maxDelay,
+	}
+}
+
+func (crt *crashRetryTracker) record(taskID string) (consecutive int, delay time.Duration) {
+	if taskID != crt.lastTaskID {
+		crt.consecutiveCrashes = 0
+		crt.lastTaskID = taskID
+	}
+	crt.consecutiveCrashes++
+	delay = crt.baseDelay
+	for i := 1; i < crt.consecutiveCrashes; i++ {
+		delay *= 2
+		if delay > crt.maxDelay {
+			delay = crt.maxDelay
+			break
+		}
+	}
+	return crt.consecutiveCrashes, delay
+}
+
+func (crt *crashRetryTracker) reset() {
+	crt.consecutiveCrashes = 0
+	crt.lastTaskID = ""
 }
 
 type exit42RestartState struct {
@@ -414,7 +478,10 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 	if err := registerAgent(bb, config.ProjectRoot, config.AgentID, config.Role, "terminal-1", 1800); err != nil {
 		return err
 	}
-	defer unregisterAgent(bb, config.AgentID)
+	defer func() {
+		unregisterAgent(bb, config.AgentID)
+		events.emitAgentReleased(config.AgentID)
+	}()
 	events.emitAgentRegistered(config.AgentID, config.Role)
 
 	// Load config from state
@@ -445,6 +512,12 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 	const maxMergeRetries = 3
 	mergeRetries := 0
 	exit42Tracker := newExit42RestartTracker()
+	crashTracker := newCrashRetryTracker(state.Config)
+
+	// Wire budget tracker for runaway prevention
+	budget := runtime.NewBudgetTrackerFromConfig(state.Config)
+	anomaly := runtime.NewAnomalyDetector()
+	var iterationHistory []runtime.IterationRecord
 
 	for {
 		// Check context cancellation (signal received)
@@ -456,6 +529,46 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		// Check ABORT
 		if checkAbort(config.ProjectRoot) {
 			GetLogger().Info("ABORT signal received, system shutting down")
+			return nil
+		}
+
+		// Budget check — enforce iteration, runtime, and task-generation limits
+		budget.RecordIteration()
+		if err := budget.Check(time.Now().UTC()); err != nil {
+			GetLogger().Warn("Budget exceeded, supervisor shutting down",
+				"reason", err.Error(),
+				"iterations", budget.Iterations(),
+				"agent_id", config.AgentID)
+			events.emitBudgetExceeded(config.AgentID, err.Error())
+			return nil
+		}
+
+		// Anomaly detection — check for stagnation / no-diff patterns
+		if anomalies := anomaly.Detect(iterationHistory); len(anomalies) > 0 {
+			for _, a := range anomalies {
+				GetLogger().Warn("Anomaly detected",
+					"type", string(a.Type),
+					"description", a.Description,
+					"severity", a.Severity,
+					"agent_id", config.AgentID)
+				events.emitAnomalyDetected(config.AgentID, a)
+			}
+			// HIGH severity anomalies trigger supervisor shutdown
+			for _, a := range anomalies {
+				if a.Severity == "HIGH" {
+					GetLogger().Error("HIGH severity anomaly, supervisor shutting down",
+						"type", string(a.Type),
+						"agent_id", config.AgentID)
+					return nil
+				}
+			}
+		}
+
+		// MaxLoops cap (operator-provided via --max-loops flag)
+		if config.MaxLoops > 0 && budget.Iterations() > config.MaxLoops {
+			GetLogger().Info("Max loops reached, supervisor exiting",
+				"max_loops", config.MaxLoops,
+				"agent_id", config.AgentID)
 			return nil
 		}
 
@@ -567,6 +680,12 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		}
 
 		// Handle exit code
+		// Record iteration for anomaly detection
+		iterRec := runtime.IterationRecord{
+			TaskID:    taskID,
+			Timestamp: time.Now().UTC(),
+		}
+
 		switch exitCode {
 		case 0:
 			GetLogger().Info("Agent completed, checking for more work")
@@ -579,7 +698,10 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 				}
 
 				// Run deterministic verification on submitted tasks
-				runPostSubmissionVerification(ctx, bb, config.ProjectRoot, claimedTaskID)
+				verifyResult := runPostSubmissionVerification(ctx, bb, config.ProjectRoot, claimedTaskID)
+				if verifyResult != nil {
+					events.emitVerifyRun(claimedTaskID, verifyResult.Passed, len(verifyResult.Results))
+				}
 			}
 
 			// Verify expected state changes for planner
@@ -592,6 +714,9 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 			}
 
 			exit42Tracker.reset(taskID)
+			crashTracker.reset()
+			iterRec.Status = "SUCCESS"
+			iterRec.HasDiff = true // assume success means progress
 		case 42:
 			restartTaskID := claimedTaskID
 			if restartTaskID == "" {
@@ -620,13 +745,86 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 				"restart_count", outcome.RestartCount,
 				"delay_seconds", int(outcome.Delay/time.Second))
 			time.Sleep(outcome.Delay)
+			iterRec.Status = "EXIT42"
 		default:
 			exit42Tracker.reset(taskID)
-			GetLogger().Error("Agent crashed, restarting", "exit_code", exitCode, "delay_seconds", 5)
-			time.Sleep(5 * time.Second)
+			crashes, delay := crashTracker.record(taskID)
+
+			if crashes > crashTracker.limit {
+				// Transition task to BLOCKED after too many consecutive crashes
+				GetLogger().Error("Crash retry limit exceeded, blocking task",
+					"exit_code", exitCode,
+					"consecutive_crashes", crashes,
+					"limit", crashTracker.limit,
+					"task_id", taskID,
+					"agent_id", config.AgentID)
+				blockTaskOnCrashLimit(bb, taskID, config.AgentID, crashes, crashTracker.limit)
+				crashTracker.reset()
+			} else {
+				GetLogger().Error("Agent crashed, restarting with backoff",
+					"exit_code", exitCode,
+					"consecutive_crashes", crashes,
+					"delay", delay,
+					"agent_id", config.AgentID)
+				time.Sleep(delay)
+			}
+
+			iterRec.Status = "CRASHED"
 		}
+
+		iterationHistory = append(iterationHistory, iterRec)
 
 		// Clear initial task after first run
 		config.InitialTask = ""
+	}
+}
+
+// blockTaskOnCrashLimit transitions a task to BLOCKED after exceeding the
+// crash retry limit. This prevents infinite crash-retry loops.
+func blockTaskOnCrashLimit(bb *db.Blackboard, taskID, agentID string, crashes, limit int) {
+	if taskID == "" {
+		return
+	}
+	err := bb.Modify(func(s *models.State) error {
+		task := s.FindTask(taskID)
+		if task == nil {
+			return nil
+		}
+		if task.Status != models.TaskStatusImplementing {
+			return nil
+		}
+		if task.AssignedTo == nil || *task.AssignedTo != agentID {
+			return nil
+		}
+
+		reason := fmt.Sprintf(
+			"crash retry limit exceeded: %d consecutive non-zero exits (limit=%d)",
+			crashes, limit,
+		)
+		questions := []string{
+			"Is the CLI binary installed and accessible?",
+			"Is there a configuration or environment issue causing persistent crashes?",
+			"Should this task be decomposed or the approach changed?",
+		}
+
+		if err := task.Transition(models.TaskStatusBlocked); err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		task.BlockedReason = &reason
+		task.BlockedQuestions = questions
+		task.AssignedTo = nil
+		task.LeaseExpires = nil
+		task.History = append(task.History, models.TaskHistoryEntry{
+			Time:   now,
+			Event:  "blocked",
+			Agent:  &agentID,
+			Reason: &reason,
+		})
+		return nil
+	})
+	if err != nil {
+		GetLogger().Error("Failed to block task after crash limit", "error", err, "task_id", taskID)
 	}
 }
