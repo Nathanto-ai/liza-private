@@ -23,8 +23,10 @@ type AddTaskInput struct {
 	Scope              string
 	Priority           int
 	DependsOn          []string
+	RequirementRefs    []string
 	AcceptanceCriteria []string
 	VerifyCommands     []string
+	ErrorBehavior      string
 	OriginTaskID       string
 	OriginFindingID    string
 }
@@ -105,6 +107,33 @@ func AddTask(statePath, logPath string, input *AddTaskInput, plannerID string) (
 		return nil, fmt.Errorf("task '%s' already exists in %s", input.ID, statePath)
 	}
 
+	// Read state for config-driven enforcement checks
+	state, err := bb.Read()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read state for enforcement checks: %w", err)
+	}
+
+	// Enforce requirement_refs when config flag is enabled
+	if state.Config.EnforceRequirementRefs && len(input.RequirementRefs) == 0 {
+		return nil, fmt.Errorf("task %s: requirement_refs required (enforce_requirement_refs is enabled in config)", input.ID)
+	}
+
+	// Enforce deduplication: reject tasks with identical description + scope
+	if state.Config.EnforceDeduplication {
+		for _, existing := range state.Tasks {
+			if existing.Status.IsTerminal() {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(existing.Description), strings.TrimSpace(input.Description)) &&
+				strings.EqualFold(strings.TrimSpace(existing.Scope), strings.TrimSpace(input.Scope)) {
+				return nil, fmt.Errorf(
+					"task %s is a duplicate of existing task %s (same description + scope; enforce_deduplication is enabled)",
+					input.ID, existing.ID,
+				)
+			}
+		}
+	}
+
 	newTask := models.Task{
 		ID:                 input.ID,
 		Type:               taskType,
@@ -115,8 +144,10 @@ func AddTask(statePath, logPath string, input *AddTaskInput, plannerID string) (
 		DoneWhen:           input.DoneWhen,
 		Scope:              input.Scope,
 		DependsOn:          normalizedDeps,
+		RequirementRefs:    input.RequirementRefs,
 		AcceptanceCriteria: input.AcceptanceCriteria,
 		VerifyCommands:     input.VerifyCommands,
+		ErrorBehavior:      input.ErrorBehavior,
 		OriginTaskID:       input.OriginTaskID,
 		OriginFindingID:    input.OriginFindingID,
 		Created:            now,

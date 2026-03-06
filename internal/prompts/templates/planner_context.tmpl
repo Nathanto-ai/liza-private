@@ -24,7 +24,7 @@ SPRINT STATE:
 
 PLANNER COMMANDS:
 - liza_add_task — Add task to blackboard (atomic, with validation)
-  Tool parameters: {"id": "...", "desc": "...", "spec": "...", "done": "...", "scope": "...", "priority": N, "depends": [...], "agent_id": "planner-1"}
+  Tool parameters: {"id": "...", "desc": "...", "spec": "...", "done": "...", "scope": "...", "priority": N, "depends": [...], "requirement_refs": ["R1", "R2"], "acceptance_criteria": ["AC-1: ..."], "verify_commands": ["pytest tests/..."], "error_behavior": "...", "agent_id": "planner-1"}
 - liza_supersede_task — Supersede task
   Tool parameters: {"task_id": "...", "replacement_ids": [...], "reason": "...", "agent_id": "planner-1"}
 - liza_wt_delete — Delete worktree for abandoned/superseded/blocked tasks
@@ -47,11 +47,22 @@ Format: anomalies: [{id, type, task, reporter, timestamp (ISO 8601), details: {<
 SELF-VALIDATION GATES (verify before adding each task):
 | Gate | Requirement |
 |------|-------------|
+| Requirement refs | Each task must cite at least one requirement (R1, R2, etc.) |
+| Acceptance criteria | Each task must have at least one acceptance criterion (AC-1: ...) |
+| Verify commands | Each task must have at least one executable verification command |
 | Spec reference | Each task must cite spec |
 | Success criteria | Each task must have falsifiable done |
 | Scope boundary | IN scope stated (functional area, not file names) |
 | Dependency check | Dependencies stated if any |
 | TDD inclusion | Code tasks include tests |
+| No duplicates | Do NOT add tasks with same description + scope as existing non-terminal tasks |
+| Error behavior | Define expected error handling (typed errors, no panics) |
+| Data provenance | Never invent data — all outputs must trace to real inputs. No hallucinated URLs, schemas, or test data. |
+
+SPEC GATE — OPEN QUESTIONS:
+If the spec file referenced by a task contains unresolved questions (e.g. "TBD", "OPEN QUESTION", "TODO: decide"),
+do NOT plan tasks for the affected area. Instead, log a spec_gap anomaly and skip to the next area.
+Unresolved spec questions BLOCK planning for the affected scope.
 
 FIELD FORMAT GUIDELINES:
 - done: observable behavior, specific, falsifiable. Bad: "works correctly". Good: "GET /users returns 200"

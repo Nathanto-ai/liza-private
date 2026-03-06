@@ -11,6 +11,29 @@ DONE WHEN:
 
 SCOPE:
 {{.Task.Scope}}
+{{- if .Task.RequirementRefs}}
+
+REQUIREMENT REFS: {{range $i, $ref := .Task.RequirementRefs}}{{if $i}}, {{end}}{{$ref}}{{end}}
+{{- end}}
+{{- if .Task.AcceptanceCriteria}}
+
+ACCEPTANCE CRITERIA:
+{{- range .Task.AcceptanceCriteria}}
+- {{.}}
+{{- end}}
+{{- end}}
+{{- if .Task.VerifyCommands}}
+
+VERIFICATION COMMANDS:
+{{- range .Task.VerifyCommands}}
+- {{.}}
+{{- end}}
+{{- end}}
+{{- if .Task.ErrorBehavior}}
+
+ERROR BEHAVIOR:
+{{.Task.ErrorBehavior}}
+{{- end}}
 {{- if .Config.HandoffNote}}
 
 === HANDOFF RESUME CONTEXT ===
@@ -67,6 +90,12 @@ If a required tool or dependency is missing (e.g., pip, npm, cargo):
 - Try at most 2 alternatives (e.g., pip3, python3 -m pip)
 - If still unavailable: mark BLOCKED immediately via liza_mark_blocked
 - NEVER attempt to install, bootstrap, or fix system-level tooling
+
+--- DATA PROVENANCE & DETERMINISM RULES ---
+- Never invent data: all URLs, schemas, test fixtures, and configuration values must trace to real inputs (spec, config, or prior code).
+- No hallucinated test data: test fixtures must use realistic but clearly synthetic values (e.g., "test@example.com", not a real email).
+- Determinism: given the same inputs, your implementation must produce the same outputs. Avoid non-deterministic patterns unless explicitly required.
+- If a value is unknown, use a placeholder with a clear marker (e.g., "TODO: replace with actual value from config") rather than inventing one.
 
 --- IMPLEMENTATION PHASE ---
 1. The task is already IMPLEMENTING for you. Do NOT run liza claim-task.

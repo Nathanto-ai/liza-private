@@ -434,6 +434,22 @@ func (s *Server) registerMutationTools() {
 					Type:        "array",
 					Description: "List of task IDs this task depends on",
 				},
+				"requirement_refs": {
+					Type:        "array",
+					Description: "Requirement references (e.g. R1, R2). Required when enforce_requirement_refs is enabled.",
+				},
+				"acceptance_criteria": {
+					Type:        "array",
+					Description: "Acceptance criteria references (e.g. AC-1, AC-2). Required for IMPLEMENTING gate.",
+				},
+				"verify_commands": {
+					Type:        "array",
+					Description: "Executable verification commands (e.g. pytest tests/test_foo.py). Required for IMPLEMENTING gate.",
+				},
+				"error_behavior": {
+					Type:        "string",
+					Description: "Expected error behavior definition (e.g. 'return typed error on invalid input, never panic')",
+				},
 				"type": {
 					Type:        "string",
 					Description: "Task type determining role workflow (default: coding)",

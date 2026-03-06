@@ -174,6 +174,9 @@ func handleEntityQuery(state *models.State, entity string, args []string, opts I
 			return "", err
 		}
 		return result.(string), nil
+	case "traceability":
+		// Show requirements → tasks → verification traceability matrix
+		return inspectTraceability(state, opts.Format)
 	default:
 		return "", &errors.NotFoundError{Entity: entity}
 	}

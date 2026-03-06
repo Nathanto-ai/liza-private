@@ -793,6 +793,7 @@ Query Types:
     agents <agent-id>              - Show specific agent
     metrics                        - Show sprint metrics
     anomalies                      - List all anomalies
+    traceability                   - Show requirements → tasks → tests matrix
 
   ID shorthand:
     <task-id>                      - Show specific task (any ID format, e.g., task-1, fix-auth-bug)

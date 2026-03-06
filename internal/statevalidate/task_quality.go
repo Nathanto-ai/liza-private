@@ -7,7 +7,8 @@ import (
 )
 
 // validateTaskQuality enforces the spec quality gate: tasks cannot be in
-// IMPLEMENTING status without acceptance criteria and verification commands.
+// IMPLEMENTING status without acceptance criteria, verification commands,
+// and (when enabled) requirement references.
 // This prevents work from starting on poorly-defined tasks.
 func validateTaskQuality(state *models.State, _ string, _ bool) error {
 	for _, task := range state.Tasks {
@@ -25,6 +26,14 @@ func validateTaskQuality(state *models.State, _ string, _ bool) error {
 		if len(task.VerifyCommands) == 0 {
 			return fmt.Errorf(
 				"task %s is IMPLEMENTING but has no verify_commands (spec quality gate)",
+				task.ID,
+			)
+		}
+
+		// Enforce requirement references when enabled in config
+		if state.Config.EnforceRequirementRefs && len(task.RequirementRefs) == 0 {
+			return fmt.Errorf(
+				"task %s is IMPLEMENTING but has no requirement_refs (spec quality gate: enforce_requirement_refs is enabled)",
 				task.ID,
 			)
 		}

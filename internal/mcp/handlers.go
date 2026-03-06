@@ -266,18 +266,26 @@ func (s *Server) handleAddTask(params map[string]any) (any, error) {
 	}
 
 	dependsOn := extractStringSlice(params, "depends")
+	requirementRefs := extractStringSlice(params, "requirement_refs")
+	acceptanceCriteria := extractStringSlice(params, "acceptance_criteria")
+	verifyCommands := extractStringSlice(params, "verify_commands")
+	errorBehavior, _ := params["error_behavior"].(string)
 
 	taskType, _ := params["type"].(string)
 
 	input := &ops.AddTaskInput{
-		ID:          id,
-		Type:        taskType,
-		Description: description,
-		SpecRef:     specRef,
-		DoneWhen:    doneWhen,
-		Scope:       scope,
-		Priority:    priority,
-		DependsOn:   dependsOn,
+		ID:                 id,
+		Type:               taskType,
+		Description:        description,
+		SpecRef:            specRef,
+		DoneWhen:           doneWhen,
+		Scope:              scope,
+		Priority:           priority,
+		DependsOn:          dependsOn,
+		RequirementRefs:    requirementRefs,
+		AcceptanceCriteria: acceptanceCriteria,
+		VerifyCommands:     verifyCommands,
+		ErrorBehavior:      errorBehavior,
 	}
 
 	statePath := paths.New(s.projectRoot).StatePath()

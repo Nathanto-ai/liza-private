@@ -182,8 +182,10 @@ type Task struct {
 	IntegrationFix      bool               `yaml:"integration_fix,omitempty"`
 	HandoffPending      bool               `yaml:"handoff_pending,omitempty"`
 	MaxIterations       int                `yaml:"max_iterations,omitempty"`
+	RequirementRefs     []string           `yaml:"requirement_refs,omitempty"`
 	AcceptanceCriteria  []string           `yaml:"acceptance_criteria,omitempty"`
 	VerifyCommands      []string           `yaml:"verify_commands,omitempty"`
+	ErrorBehavior       string             `yaml:"error_behavior,omitempty"`
 	OriginTaskID        string             `yaml:"origin_task_id,omitempty"`
 	OriginFindingID     string             `yaml:"origin_finding_id,omitempty"`
 	Created             time.Time          `yaml:"created"`
@@ -742,5 +744,7 @@ type Config struct {
 	MaxTasksGenerated       int            `yaml:"max_tasks_generated,omitempty"`
 	MaxAgentIterations      int            `yaml:"max_agent_iterations,omitempty"`
 	MaxRuntimeMinutes       int            `yaml:"max_runtime_minutes,omitempty"`
+	EnforceRequirementRefs  bool           `yaml:"enforce_requirement_refs,omitempty"`
+	EnforceDeduplication    bool           `yaml:"enforce_deduplication,omitempty"`
 	Extra                   map[string]any `yaml:",inline"`
 }
