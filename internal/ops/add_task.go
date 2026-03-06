@@ -15,14 +15,18 @@ import (
 
 // AddTaskInput represents the input parameters for adding a task.
 type AddTaskInput struct {
-	ID          string
-	Type        string
-	Description string
-	SpecRef     string
-	DoneWhen    string
-	Scope       string
-	Priority    int
-	DependsOn   []string
+	ID                 string
+	Type               string
+	Description        string
+	SpecRef            string
+	DoneWhen           string
+	Scope              string
+	Priority           int
+	DependsOn          []string
+	AcceptanceCriteria []string
+	VerifyCommands     []string
+	OriginTaskID       string
+	OriginFindingID    string
 }
 
 // AddTaskResult contains the outcome of adding a task.
@@ -102,17 +106,21 @@ func AddTask(statePath, logPath string, input *AddTaskInput, plannerID string) (
 	}
 
 	newTask := models.Task{
-		ID:          input.ID,
-		Type:        taskType,
-		Description: input.Description,
-		Status:      models.TaskStatusReady,
-		Priority:    input.Priority,
-		SpecRef:     input.SpecRef,
-		DoneWhen:    input.DoneWhen,
-		Scope:       input.Scope,
-		DependsOn:   normalizedDeps,
-		Created:     now,
-		History:     []models.TaskHistoryEntry{},
+		ID:                 input.ID,
+		Type:               taskType,
+		Description:        input.Description,
+		Status:             models.TaskStatusReady,
+		Priority:           input.Priority,
+		SpecRef:            input.SpecRef,
+		DoneWhen:           input.DoneWhen,
+		Scope:              input.Scope,
+		DependsOn:          normalizedDeps,
+		AcceptanceCriteria: input.AcceptanceCriteria,
+		VerifyCommands:     input.VerifyCommands,
+		OriginTaskID:       input.OriginTaskID,
+		OriginFindingID:    input.OriginFindingID,
+		Created:            now,
+		History:            []models.TaskHistoryEntry{},
 	}
 
 	err = bb.Modify(func(state *models.State) error {

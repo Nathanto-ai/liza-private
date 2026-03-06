@@ -114,6 +114,33 @@ Returns detailed error messages if validation fails.`,
 	},
 }
 
+var validateSpecCmd = &cobra.Command{
+	Use:   "validate-spec <spec-file>",
+	Short: "Validate a specification file against required sections",
+	Long: `Validate a Vision or Delivery spec file against required section rules.
+
+Vision specs must contain: Problem Statement, Target Users, MVP Scope,
+Explicit Out of Scope, Success Criteria, Risks and Assumptions.
+
+Delivery specs must contain: Definitions / Glossary, User Stories,
+Acceptance Criteria (with Given/When/Then), Data & Interfaces, Constraints,
+Verification Plan, Non Goals, Open Questions.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		specPath := args[0]
+		specType, _ := cmd.Flags().GetString("type")
+		if specType == "" {
+			specType = "delivery"
+		}
+		err := commands.ValidateSpecCommand(specPath, specType)
+		if err != nil {
+			return err
+		}
+		fmt.Println("VALID")
+		return nil
+	},
+}
+
 var wtCreateCmd = &cobra.Command{
 	Use:   "wt-create <task-id>",
 	Short: "Create a worktree for an IMPLEMENTING task",
@@ -1272,9 +1299,13 @@ func init() {
 	rootCmd.AddCommand(recoverTaskCmd)
 	rootCmd.AddCommand(recoverAgentCmd)
 	rootCmd.AddCommand(deleteCmd)
+	rootCmd.AddCommand(validateSpecCmd)
 
 	deleteCmd.AddCommand(deleteAgentCmd)
 	deleteCmd.AddCommand(deleteTaskCmd)
+
+	// Validate-spec command flags
+	validateSpecCmd.Flags().String("type", "delivery", "spec type: vision or delivery")
 
 	// Setup command flags
 	setupCmd.Flags().Bool("force", false, "overwrite existing global config")

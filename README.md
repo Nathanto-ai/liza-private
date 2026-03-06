@@ -23,6 +23,11 @@ A peer-supervised multi-agent coding system (MAS) built on behavioral contracts.
 - **Context Handoff**: Agents hand off with structured notes when approaching context limits
 - **Monitoring**: Watch daemon alerts on anomalies (expired leases, blocked tasks, etc.)
 - **Agent Log Analysis**: Opt-in logging with token usage, context utilization, and struggle sequence diagnostics
+- **Spec Validation**: Automated validation of vision and delivery specs with required section enforcement
+- **Auditor Role**: Advisory auditor agents that review completed work and produce structured findings
+- **Deterministic Verification**: Command-based verification layer with exit-code-driven PASS/FAIL
+- **Runaway Protection**: Budget tracking (iterations, tasks, runtime) and anomaly detection (stagnation, no-diff)
+- **Structured Observability**: JSONL event logging for debugging and audit trails
 
 ## Requirements
 
@@ -61,7 +66,7 @@ and may use any skill they consider relevant to adapt to the situation.
 
 **Liza has the built-in capability to do things right on the first pass.**
 
-As of today, Liza has only 3 roles. More to come: Spec Writer / Spec Reviewer, etc.
+As of today, Liza has 4 roles. More to come: Spec Writer / Spec Reviewer, etc.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -75,7 +80,7 @@ As of today, Liza has only 3 roles. More to come: Spec Writer / Spec Reviewer, e
     ┌───────────┐        ┌──────────┐        ┌──────────┐
     │ Planner   │        │  Coder   │        │ Reviewer │
     │           │        │          │        │          │
-    │ Decomposes|        │ Claims   │        │ Examines │
+    │ Decomposes│        │ Claims   │        │ Examines │
     │ goal into │        │ tasks,   │        │ work,    │
     │ tasks,    │        │ iterates │        │ approves │
     │ rescopes  │        │ until    │        │ or       │
@@ -84,6 +89,16 @@ As of today, Liza has only 3 roles. More to come: Spec Writer / Spec Reviewer, e
     └─────┬─────┘        └────┬─────┘        └────┬─────┘
           │                   │                   │
           └───────────────────┴───────────────────┘
+                              │
+                        ┌─────┴─────┐
+                        │  Auditor  │  ← advisory role
+                        │           │
+                        │ Reviews   │
+                        │ completed │
+                        │ work,     │
+                        │ creates   │
+                        │ findings  │
+                        └─────┬─────┘
                               │
                               ▼
                      ┌─────────────────┐
@@ -115,8 +130,12 @@ DRAFT → READY → IMPLEMENTING → READY_FOR_REVIEW → REVIEWING → APPROVED
                       │    ├──> SUPERSEDED
                       │    └──> ABANDONED
                       │
+                      ├──> NEEDS_HUMAN_DECISION ──> READY / ABANDONED / SUPERSEDED
+                      │
                       └──> READY (release claim)
 ```
+
+**NEEDS_HUMAN_DECISION**: A safe stop — the system halts when it encounters spec ambiguity, conflicting requirements, or budget/time caps. Not an error state; requires human resolution before the task can proceed.
 ---
 
 ## Getting Started
@@ -222,6 +241,7 @@ liza add-task --id t1 --desc "..." --spec "..." \
   --done "..." --scope "..."                        # Add tasks
 liza agent coder --agent-id coder-1                 # Start agent supervisor
 liza validate                                       # Validate state
+liza validate-spec specs/delivery.md --type delivery # Validate spec file
 liza get tasks                                      # Query tasks
 liza status                                         # Dashboard overview
 liza watch                                          # Monitor for anomalies

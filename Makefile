@@ -1,4 +1,4 @@
-.PHONY: build test clean install lint check-testhelpers release package build-all tidy run coverage help
+.PHONY: build test clean install lint check-testhelpers release package build-all tidy run coverage vnv help
 
 # Binary names
 BINARY_NAME=liza
@@ -140,6 +140,10 @@ package: release
 	@echo "✓ Distribution packages created"
 	@ls -lh dist/*.tar.gz dist/*.zip
 
+# Run V&V (Verification & Validation) suite
+vnv: sync-embedded
+	@bash scripts/vnv.sh
+
 # Help target
 help:
 	@echo "Available targets:"
@@ -155,3 +159,4 @@ help:
 	@echo "  build-all          - Build both binaries for multiple platforms"
 	@echo "  release            - Create release artifacts (run tests, build all platforms, create checksums)"
 	@echo "  package            - Create distribution packages (tarballs and zip files)"
+	@echo "  vnv                - Run Verification & Validation suite"

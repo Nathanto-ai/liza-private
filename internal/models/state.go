@@ -22,6 +22,7 @@ type State struct {
 	Sprint         Sprint                 `yaml:"sprint"`
 	SprintHistory  []SprintSummary        `yaml:"sprint_history,omitempty"`
 	CircuitBreaker CircuitBreaker         `yaml:"circuit_breaker"`
+	AuditFindings  []AuditFinding         `yaml:"audit_findings,omitempty"`
 	Config         Config                 `yaml:"config"`
 	Extra          map[string]any         `yaml:",inline"`
 }
@@ -39,6 +40,7 @@ const (
 	RoleCoder        = roles.WorkflowCoder
 	RoleCodeReviewer = roles.WorkflowCodeReviewer
 	RolePlanner      = roles.WorkflowPlanner
+	RoleAuditor      = roles.WorkflowAuditor
 )
 
 // taskWorkflows maps each TaskType to its ordered role sequence.
@@ -79,18 +81,19 @@ func (tt TaskType) HasRole(role string) bool {
 type TaskStatus string
 
 const (
-	TaskStatusDraft             TaskStatus = "DRAFT"
-	TaskStatusReady             TaskStatus = "READY"
-	TaskStatusImplementing      TaskStatus = "IMPLEMENTING"
-	TaskStatusReadyForReview    TaskStatus = "READY_FOR_REVIEW"
-	TaskStatusReviewing         TaskStatus = "REVIEWING"
-	TaskStatusRejected          TaskStatus = "REJECTED"
-	TaskStatusApproved          TaskStatus = "APPROVED"
-	TaskStatusMerged            TaskStatus = "MERGED"
-	TaskStatusBlocked           TaskStatus = "BLOCKED"
-	TaskStatusAbandoned         TaskStatus = "ABANDONED"
-	TaskStatusSuperseded        TaskStatus = "SUPERSEDED"
-	TaskStatusIntegrationFailed TaskStatus = "INTEGRATION_FAILED"
+	TaskStatusDraft              TaskStatus = "DRAFT"
+	TaskStatusReady              TaskStatus = "READY"
+	TaskStatusImplementing       TaskStatus = "IMPLEMENTING"
+	TaskStatusReadyForReview     TaskStatus = "READY_FOR_REVIEW"
+	TaskStatusReviewing          TaskStatus = "REVIEWING"
+	TaskStatusRejected           TaskStatus = "REJECTED"
+	TaskStatusApproved           TaskStatus = "APPROVED"
+	TaskStatusMerged             TaskStatus = "MERGED"
+	TaskStatusBlocked            TaskStatus = "BLOCKED"
+	TaskStatusAbandoned          TaskStatus = "ABANDONED"
+	TaskStatusSuperseded         TaskStatus = "SUPERSEDED"
+	TaskStatusIntegrationFailed  TaskStatus = "INTEGRATION_FAILED"
+	TaskStatusNeedsHumanDecision TaskStatus = "NEEDS_HUMAN_DECISION"
 )
 
 // IsValid checks if the task status is valid
@@ -99,7 +102,8 @@ func (ts TaskStatus) IsValid() bool {
 	case TaskStatusDraft, TaskStatusReady, TaskStatusImplementing,
 		TaskStatusReadyForReview, TaskStatusReviewing, TaskStatusRejected,
 		TaskStatusApproved, TaskStatusMerged, TaskStatusBlocked,
-		TaskStatusAbandoned, TaskStatusSuperseded, TaskStatusIntegrationFailed:
+		TaskStatusAbandoned, TaskStatusSuperseded, TaskStatusIntegrationFailed,
+		TaskStatusNeedsHumanDecision:
 		return true
 	}
 	return false
@@ -113,18 +117,19 @@ func (ts TaskStatus) IsTerminal() bool {
 // taskTransitions defines the complete, explicit task state machine.
 // Every valid status transition is declared here. Terminal states have empty target lists.
 var taskTransitions = map[TaskStatus][]TaskStatus{
-	TaskStatusDraft:             {TaskStatusReady, TaskStatusAbandoned},
-	TaskStatusReady:             {TaskStatusImplementing, TaskStatusSuperseded, TaskStatusAbandoned},
-	TaskStatusImplementing:      {TaskStatusReadyForReview, TaskStatusBlocked, TaskStatusReady},
-	TaskStatusReadyForReview:    {TaskStatusReviewing},
-	TaskStatusReviewing:         {TaskStatusApproved, TaskStatusRejected, TaskStatusReadyForReview},
-	TaskStatusRejected:          {TaskStatusImplementing, TaskStatusBlocked, TaskStatusSuperseded, TaskStatusAbandoned},
-	TaskStatusApproved:          {TaskStatusMerged, TaskStatusIntegrationFailed},
-	TaskStatusBlocked:           {TaskStatusSuperseded, TaskStatusAbandoned},
-	TaskStatusIntegrationFailed: {TaskStatusImplementing, TaskStatusAbandoned},
-	TaskStatusMerged:            {},
-	TaskStatusAbandoned:         {},
-	TaskStatusSuperseded:        {},
+	TaskStatusDraft:              {TaskStatusReady, TaskStatusAbandoned},
+	TaskStatusReady:              {TaskStatusImplementing, TaskStatusSuperseded, TaskStatusAbandoned},
+	TaskStatusImplementing:       {TaskStatusReadyForReview, TaskStatusBlocked, TaskStatusReady, TaskStatusNeedsHumanDecision},
+	TaskStatusReadyForReview:     {TaskStatusReviewing},
+	TaskStatusReviewing:          {TaskStatusApproved, TaskStatusRejected, TaskStatusReadyForReview},
+	TaskStatusRejected:           {TaskStatusImplementing, TaskStatusBlocked, TaskStatusSuperseded, TaskStatusAbandoned},
+	TaskStatusApproved:           {TaskStatusMerged, TaskStatusIntegrationFailed},
+	TaskStatusBlocked:            {TaskStatusSuperseded, TaskStatusAbandoned, TaskStatusNeedsHumanDecision},
+	TaskStatusIntegrationFailed:  {TaskStatusImplementing, TaskStatusAbandoned},
+	TaskStatusMerged:             {},
+	TaskStatusAbandoned:          {},
+	TaskStatusSuperseded:         {},
+	TaskStatusNeedsHumanDecision: {TaskStatusReady, TaskStatusAbandoned, TaskStatusSuperseded},
 }
 
 // CanTransition reports whether a transition from ts to the given target status is valid.
@@ -177,6 +182,10 @@ type Task struct {
 	IntegrationFix      bool               `yaml:"integration_fix,omitempty"`
 	HandoffPending      bool               `yaml:"handoff_pending,omitempty"`
 	MaxIterations       int                `yaml:"max_iterations,omitempty"`
+	AcceptanceCriteria  []string           `yaml:"acceptance_criteria,omitempty"`
+	VerifyCommands      []string           `yaml:"verify_commands,omitempty"`
+	OriginTaskID        string             `yaml:"origin_task_id,omitempty"`
+	OriginFindingID     string             `yaml:"origin_finding_id,omitempty"`
 	Created             time.Time          `yaml:"created"`
 	History             []TaskHistoryEntry `yaml:"history"`
 	Extra               map[string]any     `yaml:",inline"`
@@ -518,6 +527,32 @@ type SpecChange struct {
 	Extra       map[string]any `yaml:",inline"`
 }
 
+// AuditFinding represents a structured finding from the auditor agent.
+// Findings are advisory — the supervisor retains deterministic PASS/FAIL control.
+type AuditFinding struct {
+	ID                string         `yaml:"id"`
+	TaskID            string         `yaml:"task_id"`
+	Severity          string         `yaml:"severity"` // HIGH, MEDIUM, LOW
+	Type              string         `yaml:"type"`     // SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, QUALITY_ISSUE
+	SpecReference     string         `yaml:"spec_reference,omitempty"`
+	Evidence          string         `yaml:"evidence"`
+	RecommendedAction string         `yaml:"recommended_action,omitempty"`
+	Created           time.Time      `yaml:"created"`
+	Resolved          bool           `yaml:"resolved,omitempty"`
+	Extra             map[string]any `yaml:",inline"`
+}
+
+// IsValidSeverity checks if the audit finding severity is valid.
+func (f *AuditFinding) IsValidSeverity() bool {
+	return f.Severity == "HIGH" || f.Severity == "MEDIUM" || f.Severity == "LOW"
+}
+
+// IsValidType checks if the audit finding type is valid.
+func (f *AuditFinding) IsValidType() bool {
+	validTypes := []string{"SPEC_MISMATCH", "MISSING_TEST", "MISSING_EDGE_CASE", "QUALITY_ISSUE"}
+	return slices.Contains(validTypes, f.Type)
+}
+
 // Anomaly represents an execution anomaly that may trigger circuit breaker
 type Anomaly struct {
 	Timestamp time.Time      `yaml:"timestamp"`
@@ -696,5 +731,9 @@ type Config struct {
 	ModeChangedAt           *time.Time     `yaml:"mode_changed_at,omitempty"`
 	ModeChangedBy           *string        `yaml:"mode_changed_by,omitempty"`
 	DiagnosticLogging       bool           `yaml:"diagnostic_logging,omitempty"`
+	MaxTasksPerRun          int            `yaml:"max_tasks_per_run,omitempty"`
+	MaxTasksGenerated       int            `yaml:"max_tasks_generated,omitempty"`
+	MaxAgentIterations      int            `yaml:"max_agent_iterations,omitempty"`
+	MaxRuntimeMinutes       int            `yaml:"max_runtime_minutes,omitempty"`
 	Extra                   map[string]any `yaml:",inline"`
 }

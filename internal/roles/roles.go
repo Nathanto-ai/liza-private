@@ -10,6 +10,7 @@ const (
 	RuntimeCoder        = "coder"
 	RuntimeCodeReviewer = "code-reviewer"
 	RuntimePlanner      = "planner"
+	RuntimeAuditor      = "auditor"
 )
 
 // Workflow role names used in task workflow definitions.
@@ -18,6 +19,7 @@ const (
 	WorkflowCoder        = "coder"
 	WorkflowCodeReviewer = "code_reviewer"
 	WorkflowPlanner      = "planner"
+	WorkflowAuditor      = "auditor"
 )
 
 // runtimeToWorkflow maps runtime role names to workflow role names.
@@ -25,6 +27,7 @@ var runtimeToWorkflow = map[string]string{
 	RuntimeCoder:        WorkflowCoder,
 	RuntimeCodeReviewer: WorkflowCodeReviewer,
 	RuntimePlanner:      WorkflowPlanner,
+	RuntimeAuditor:      WorkflowAuditor,
 }
 
 // workflowToRuntime maps workflow role names to runtime role names.
@@ -32,6 +35,7 @@ var workflowToRuntime = map[string]string{
 	WorkflowCoder:        RuntimeCoder,
 	WorkflowCodeReviewer: RuntimeCodeReviewer,
 	WorkflowPlanner:      RuntimePlanner,
+	WorkflowAuditor:      RuntimeAuditor,
 }
 
 // ToWorkflow converts a runtime role name to its workflow equivalent.
@@ -66,10 +70,10 @@ func IsValidWorkflow(role string) bool {
 
 // AllRuntime returns all valid runtime role names.
 func AllRuntime() []string {
-	return []string{RuntimeCoder, RuntimeCodeReviewer, RuntimePlanner}
+	return []string{RuntimeCoder, RuntimeCodeReviewer, RuntimePlanner, RuntimeAuditor}
 }
 
 // AllWorkflow returns all valid workflow role names.
 func AllWorkflow() []string {
-	return []string{WorkflowCoder, WorkflowCodeReviewer, WorkflowPlanner}
+	return []string{WorkflowCoder, WorkflowCodeReviewer, WorkflowPlanner, WorkflowAuditor}
 }

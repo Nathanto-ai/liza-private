@@ -86,6 +86,10 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | `planner_max_wait` | 1800 | — | — | seconds | Max planner idle before exit |
 | `reviewer_poll_interval` | 30 | — | — | seconds | Reviewer polling interval |
 | `reviewer_max_wait` | 1800 | — | — | seconds | Max reviewer idle before exit |
+| `max_tasks_per_run` | 10 | 1 | 50 | count | Max finding-originated tasks per run (runaway protection) |
+| `max_tasks_generated` | 20 | 1 | 100 | count | Global cap on planner-generated tasks |
+| `max_agent_iterations` | 50 | 1 | 200 | count | Max total iterations before budget halt |
+| `max_runtime_minutes` | 120 | 1 | 480 | minutes | Max runtime before budget halt |
 
 ### Agent Execution Timeouts
 
@@ -94,10 +98,38 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | Code Reviewer | 30 min | Reviews should complete quickly |
 | Coder | 2 hours | Implementation takes longer |
 | Planner | 4 hours | Complex planning needs time |
+| Auditor | 30 min | Advisory review with structured findings |
 
 When exceeded, supervisor kills CLI, resets agent to IDLE, retries after 5s delay.
 
 **Note:** Planners now respect `planner_max_wait` (default 30 minutes). Previously planners ran indefinitely; they now exit after the configured idle timeout, same as coders and reviewers.
+
+### Task Quality Gate
+
+Tasks transitioning to IMPLEMENTING must include:
+
+| Field | Required | Purpose |
+|-------|----------|---------|
+| `acceptance_criteria` | Yes (non-empty) | What "done" looks like |
+| `verify_commands` | Yes (non-empty) | Deterministic verification commands |
+| `spec_ref` | Yes (existing) | Traceability to specification |
+| `done_when` | Yes (existing) | Human-readable completion criteria |
+
+Tasks with `origin_finding_id` trace back to an audit finding. Tasks with `origin_task_id` trace to the original task the finding was raised against.
+
+### Audit Findings
+
+Auditor agents produce structured findings stored in `state.yaml` under `audit_findings`:
+
+| Field | Required | Values |
+|-------|----------|--------|
+| `severity` | Yes | `LOW`, `MEDIUM`, `HIGH` |
+| `type` | Yes | `SPEC_MISMATCH`, `MISSING_TEST`, `QUALITY_ISSUE`, `SECURITY_CONCERN` |
+| `spec_reference` | Yes | Which AC or spec section |
+| `evidence` | Yes | What the auditor observed |
+| `recommended_action` | Yes | What should be done |
+
+Findings are **advisory** — they cannot set PASS/FAIL or bypass deterministic verification.
 
 ## Tuning Guidelines
 
@@ -173,6 +205,9 @@ When `liza watch` triggers the circuit breaker, it also sets `sprint.status` to 
 | ABANDONED | No | No | **Yes** |
 | SUPERSEDED | No | No | **Yes** |
 | INTEGRATION_FAILED | Yes | No | No |
+| NEEDS_HUMAN_DECISION | No | No | No |
+
+**NEEDS_HUMAN_DECISION**: A safe stop state. The system halts a task when it encounters spec ambiguity, conflicting requirements, or exceeds budget/time caps. Valid transitions: IMPLEMENTING→NHD, BLOCKED→NHD; from NHD: →READY (resume), →ABANDONED, →SUPERSEDED. Requires human resolution before proceeding.
 
 ## Supported CLIs
 

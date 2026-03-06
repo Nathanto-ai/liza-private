@@ -211,14 +211,31 @@ func computeExit42BackoffDelay(restartCount int, maxBackoff time.Duration) time.
 }
 
 func exit42TaskProgressSignature(task *models.Task) string {
+	// Only track fields that indicate real agent progress.
+	// Exclude system-generated bookkeeping (history entries, lease timestamps,
+	// handoff state, heartbeat, exit42 restart count) that change on every
+	// claim/resume cycle — those changes do NOT indicate the agent made progress
+	// and should not reset the exit-42 restart counter.
 	snapshot := *task
 	snapshot.Exit42RestartCount = 0
+	snapshot.History = nil
+	snapshot.LeaseExpires = nil
+	snapshot.ReviewLeaseExpires = nil
+	snapshot.HandoffPending = false
 
 	payload, err := json.Marshal(snapshot)
 	if err != nil {
-		return fmt.Sprintf("%s|%d|%t", task.Status, task.Iteration, task.HandoffPending)
+		return fmt.Sprintf("%s|%d|%s", task.Status, task.Iteration, stringOrEmpty(task.ReviewCommit))
 	}
 	return string(payload)
+}
+
+// stringOrEmpty returns the value of a *string or "" if nil.
+func stringOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // CLIExecutor interface for testing (mock vs real CLI)

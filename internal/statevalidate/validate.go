@@ -32,6 +32,7 @@ func ValidateStateFile(statePath string, skipSpecFileCheck bool, warnWriter io.W
 		validateRequiredFields,
 		validateTaskStates,
 		validateTaskInvariants,
+		validateTaskQuality,
 		validateDependencies,
 		func(state *models.State, projectRoot string, skipSpecFileCheck bool) error {
 			return validateAgentInvariants(state, projectRoot, skipSpecFileCheck, warnWriter)
@@ -39,6 +40,7 @@ func ValidateStateFile(statePath string, skipSpecFileCheck bool, warnWriter io.W
 		validateHandoff,
 		validateDiscovered,
 		validateAnomalies,
+		validateAuditFindings,
 		validateSprint,
 	}
 
@@ -175,6 +177,13 @@ func validateTaskInvariants(state *models.State, projectRoot string, skipSpecFil
 			}
 			if len(task.BlockedQuestions) == 0 {
 				return fmt.Errorf("BLOCKED task without blocked_questions: %s", task.ID)
+			}
+		}
+
+		// NEEDS_HUMAN_DECISION must have blocked_reason
+		if task.Status == models.TaskStatusNeedsHumanDecision {
+			if task.BlockedReason == nil {
+				return fmt.Errorf("NEEDS_HUMAN_DECISION task without blocked_reason: %s", task.ID)
 			}
 		}
 

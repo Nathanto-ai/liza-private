@@ -194,7 +194,7 @@ func TestAllRuntime(t *testing.T) {
 	t.Parallel()
 
 	got := AllRuntime()
-	want := []string{RuntimeCoder, RuntimeCodeReviewer, RuntimePlanner}
+	want := []string{RuntimeCoder, RuntimeCodeReviewer, RuntimePlanner, RuntimeAuditor}
 
 	if len(got) != len(want) {
 		t.Errorf("AllRuntime() returned %d roles, want %d", len(got), len(want))
@@ -211,7 +211,7 @@ func TestAllWorkflow(t *testing.T) {
 	t.Parallel()
 
 	got := AllWorkflow()
-	want := []string{WorkflowCoder, WorkflowCodeReviewer, WorkflowPlanner}
+	want := []string{WorkflowCoder, WorkflowCodeReviewer, WorkflowPlanner, WorkflowAuditor}
 
 	if len(got) != len(want) {
 		t.Errorf("AllWorkflow() returned %d roles, want %d", len(got), len(want))
