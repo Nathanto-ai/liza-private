@@ -128,7 +128,7 @@ func countTasksByStatus(state *models.State, status models.TaskStatus) int {
 func countHypothesisExhaustedTasks(state *models.State) int {
 	count := 0
 	for _, task := range state.Tasks {
-		if len(task.FailedBy) >= 2 && !task.Status.IsTerminal() {
+		if len(task.FailedBy) >= 2 && !task.Status.IsComplete() {
 			count++
 		}
 	}

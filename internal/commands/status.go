@@ -214,8 +214,8 @@ func buildTaskStatus(state *models.State) taskStatus {
 		// Count by status
 		ts.ByStatus[string(task.Status)]++
 
-		// Count active vs terminal
-		if task.Status.IsTerminal() {
+		// Count active vs complete
+		if task.Status.IsComplete() {
 			ts.Terminal++
 		} else {
 			ts.Active++
@@ -325,7 +325,7 @@ func detectPlannerWakeTriggers(state *models.State) (trigger string, count int) 
 		case models.TaskStatusIntegrationFailed:
 			integrationFailed++
 		}
-		if len(task.FailedBy) >= 2 && !task.Status.IsTerminal() {
+		if len(task.FailedBy) >= 2 && !task.Status.IsComplete() {
 			hypothesisExhausted++
 		}
 	}

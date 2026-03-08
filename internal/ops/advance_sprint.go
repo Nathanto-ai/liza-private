@@ -159,11 +159,11 @@ func writeSprintArchive(archivePath string, sprint *models.Sprint) error {
 	return nil
 }
 
-// collectNonTerminalTaskIDs returns IDs of tasks not in a terminal state.
+// collectNonTerminalTaskIDs returns IDs of tasks not in a complete state.
 func collectNonTerminalTaskIDs(state *models.State) []string {
 	var carried []string
 	for _, task := range state.Tasks {
-		if !task.Status.IsTerminal() {
+		if !task.Status.IsComplete() {
 			carried = append(carried, task.ID)
 		}
 	}

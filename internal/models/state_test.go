@@ -37,7 +37,6 @@ func TestTaskStatusConstants(t *testing.T) {
 
 func TestTaskTerminalStates(t *testing.T) {
 	terminalStates := []TaskStatus{
-		TaskStatusMerged,
 		TaskStatusAbandoned,
 		TaskStatusSuperseded,
 	}
@@ -58,6 +57,7 @@ func TestTaskTerminalStates(t *testing.T) {
 		TaskStatusApproved,
 		TaskStatusBlocked,
 		TaskStatusIntegrationFailed,
+		TaskStatusMerged, // MERGED can transition to READY via audit REOPEN_TASK
 	}
 
 	for _, status := range nonTerminalStates {
@@ -94,12 +94,25 @@ func TestTaskTransitionMapTargetsValid(t *testing.T) {
 }
 
 func TestTerminalStatesHaveNoTransitions(t *testing.T) {
-	terminals := []TaskStatus{TaskStatusMerged, TaskStatusAbandoned, TaskStatusSuperseded}
+	terminals := []TaskStatus{TaskStatusAbandoned, TaskStatusSuperseded}
 	for _, s := range terminals {
 		targets := taskTransitions[s]
 		if len(targets) != 0 {
 			t.Errorf("terminal status %s has non-empty transition targets: %v", s, targets)
 		}
+	}
+}
+
+func TestMergedIsNotTerminalButIsComplete(t *testing.T) {
+	if TaskStatusMerged.IsTerminal() {
+		t.Error("MERGED should not be terminal (can be reopened by audit)")
+	}
+	if !TaskStatusMerged.IsComplete() {
+		t.Error("MERGED should be complete (work is done)")
+	}
+	targets := taskTransitions[TaskStatusMerged]
+	if len(targets) != 1 || targets[0] != TaskStatusReady {
+		t.Errorf("MERGED transitions = %v, want [READY]", targets)
 	}
 }
 
@@ -139,7 +152,8 @@ func TestCanTransition(t *testing.T) {
 		{TaskStatusImplementing, TaskStatusMerged, false},
 		{TaskStatusReadyForReview, TaskStatusApproved, false},
 		{TaskStatusApproved, TaskStatusReady, false},
-		{TaskStatusMerged, TaskStatusReady, false},
+		{TaskStatusMerged, TaskStatusReady, true}, // audit REOPEN_TASK
+		{TaskStatusMerged, TaskStatusImplementing, false},
 		{TaskStatusAbandoned, TaskStatusReady, false},
 		{TaskStatusSuperseded, TaskStatusReady, false},
 
@@ -187,10 +201,21 @@ func TestTaskTransition(t *testing.T) {
 	})
 
 	t.Run("terminal state rejects all transitions", func(t *testing.T) {
-		task := Task{ID: "task-99", Status: TaskStatusMerged}
+		task := Task{ID: "task-99", Status: TaskStatusAbandoned}
 		err := task.Transition(TaskStatusReady)
 		if err == nil {
 			t.Fatal("expected error transitioning from terminal state")
+		}
+	})
+
+	t.Run("MERGED to READY succeeds (audit reopen)", func(t *testing.T) {
+		task := Task{ID: "task-100", Status: TaskStatusMerged}
+		err := task.Transition(TaskStatusReady)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if task.Status != TaskStatusReady {
+			t.Errorf("status = %s, want READY", task.Status)
 		}
 	})
 }

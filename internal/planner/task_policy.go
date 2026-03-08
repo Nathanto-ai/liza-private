@@ -82,14 +82,14 @@ func EvaluateFinding(finding models.AuditFinding) *TaskProposal {
 	}
 }
 
-// DeduplicateTasks removes proposals that duplicate existing non-terminal tasks
+// DeduplicateTasks removes proposals that duplicate existing non-complete tasks
 // with matching description or spec_ref and origin_finding_id.
 func DeduplicateTasks(proposals []TaskProposal, existingTasks []models.Task) []TaskProposal {
-	// Build lookup of existing non-terminal tasks by origin_finding_id
+	// Build lookup of existing non-complete tasks by origin_finding_id
 	existingByFinding := make(map[string]bool)
 	existingByDesc := make(map[string]bool)
 	for _, task := range existingTasks {
-		if task.Status.IsTerminal() {
+		if task.Status.IsComplete() {
 			continue
 		}
 		if task.OriginFindingID != "" {
@@ -121,12 +121,12 @@ func DeduplicateTasks(proposals []TaskProposal, existingTasks []models.Task) []T
 	return unique
 }
 
-// CountFindingOriginatedTasks counts how many non-terminal tasks in the given
+// CountFindingOriginatedTasks counts how many non-complete tasks in the given
 // list were originated from audit findings (have OriginFindingID set).
 func CountFindingOriginatedTasks(tasks []models.Task) int {
 	count := 0
 	for _, t := range tasks {
-		if t.OriginFindingID != "" && !t.Status.IsTerminal() {
+		if t.OriginFindingID != "" && !t.Status.IsComplete() {
 			count++
 		}
 	}

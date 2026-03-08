@@ -35,7 +35,7 @@ func inspectTraceability(state *models.State, format string) (string, error) {
 	taskHasReqs := make(map[string]bool)
 
 	for _, task := range state.Tasks {
-		if task.Status.IsTerminal() && task.Status != models.TaskStatusMerged {
+		if task.Status.IsTerminal() {
 			continue // skip abandoned/superseded
 		}
 		if len(task.RequirementRefs) == 0 {
@@ -75,7 +75,7 @@ func inspectTraceability(state *models.State, format string) (string, error) {
 	// Find orphan tasks (no requirement refs)
 	var orphans []string
 	for _, task := range state.Tasks {
-		if task.Status.IsTerminal() && task.Status != models.TaskStatusMerged {
+		if task.Status.IsTerminal() {
 			continue
 		}
 		if !taskHasReqs[task.ID] {

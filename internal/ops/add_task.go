@@ -121,7 +121,7 @@ func AddTask(statePath, logPath string, input *AddTaskInput, plannerID string) (
 	// Enforce deduplication: reject tasks with identical description + scope
 	if state.Config.EnforceDeduplication {
 		for _, existing := range state.Tasks {
-			if existing.Status.IsTerminal() {
+			if existing.Status.IsComplete() {
 				continue
 			}
 			if strings.EqualFold(strings.TrimSpace(existing.Description), strings.TrimSpace(input.Description)) &&

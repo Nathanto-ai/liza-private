@@ -109,8 +109,17 @@ func (ts TaskStatus) IsValid() bool {
 	return false
 }
 
-// IsTerminal checks if the task status is terminal (no further transitions)
+// IsTerminal checks if the task status is terminal (no further transitions).
+// Derived from taskTransitions — a status is terminal when it has no outgoing edges.
 func (ts TaskStatus) IsTerminal() bool {
+	targets, ok := taskTransitions[ts]
+	return ok && len(targets) == 0
+}
+
+// IsComplete checks if the task status represents completed work.
+// MERGED tasks are complete even though they can be reopened by audit findings.
+// Use this for sprint completion checks; use IsTerminal for state machine finality.
+func (ts TaskStatus) IsComplete() bool {
 	return ts == TaskStatusMerged || ts == TaskStatusAbandoned || ts == TaskStatusSuperseded
 }
 
@@ -315,15 +324,15 @@ func (s *State) FindTaskIndex(taskID string) int {
 }
 
 // AllPlannedTasksTerminal returns true if the sprint has planned tasks and all of
-// them are in a terminal state (MERGED, ABANDONED, SUPERSEDED). Returns false if
-// the planned list is empty or any planned task is not found/not terminal.
+// them are in a complete state (MERGED, ABANDONED, SUPERSEDED). Returns false if
+// the planned list is empty or any planned task is not found/not complete.
 func (s *State) AllPlannedTasksTerminal() bool {
 	if len(s.Sprint.Scope.Planned) == 0 {
 		return false
 	}
 	for _, taskID := range s.Sprint.Scope.Planned {
 		task := s.FindTask(taskID)
-		if task == nil || !task.Status.IsTerminal() {
+		if task == nil || !task.Status.IsComplete() {
 			return false
 		}
 	}
@@ -331,7 +340,7 @@ func (s *State) AllPlannedTasksTerminal() bool {
 }
 
 // SprintStalled returns true if the sprint has planned tasks and every planned
-// task is either terminal or BLOCKED, with at least one BLOCKED. This indicates
+// task is either complete or BLOCKED, with at least one BLOCKED. This indicates
 // no agent can make progress — the sprint is stuck and needs human intervention.
 func (s *State) SprintStalled() bool {
 	if len(s.Sprint.Scope.Planned) == 0 {
@@ -345,7 +354,7 @@ func (s *State) SprintStalled() bool {
 		}
 		if task.Status == TaskStatusBlocked {
 			hasBlocked = true
-		} else if !task.Status.IsTerminal() {
+		} else if !task.Status.IsComplete() {
 			return false
 		}
 	}

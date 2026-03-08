@@ -76,7 +76,7 @@ func BuildPlannerContext(state *models.State, config PlannerContextConfig) (stri
 
 	hypothesisExhausted := 0
 	for _, task := range state.Tasks {
-		if len(task.FailedBy) >= 2 && !task.Status.IsTerminal() {
+		if len(task.FailedBy) >= 2 && !task.Status.IsComplete() {
 			hypothesisExhausted++
 		}
 	}
