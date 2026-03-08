@@ -30,20 +30,47 @@ const maxMergeRetries = 3
 // Production code leaves this nil.
 var mergeCASRetryTestHook func(attempt int, integrationRef, preMergeHEAD string) error
 
+// findGitShell locates sh.exe from the Git for Windows installation.
+// It finds git.exe on PATH and resolves ../bin/sh.exe relative to it,
+// avoiding the WSL bash.exe at C:\WINDOWS\system32 which uses incompatible paths.
+func findGitShell() (string, error) {
+	gitExe, err := exec.LookPath("git")
+	if err != nil {
+		return "", fmt.Errorf("git not found on PATH: %w", err)
+	}
+	// git.exe is typically at <Git>/cmd/git.exe; sh.exe is at <Git>/bin/sh.exe
+	gitDir := filepath.Dir(filepath.Dir(gitExe))
+	sh := filepath.Join(gitDir, "bin", "sh.exe")
+	if _, err := os.Stat(sh); err != nil {
+		// Also check <Git>/usr/bin/sh.exe (some Git distributions)
+		sh = filepath.Join(gitDir, "usr", "bin", "sh.exe")
+		if _, err := os.Stat(sh); err != nil {
+			return "", fmt.Errorf("sh.exe not found in Git installation at %s", gitDir)
+		}
+	}
+	return sh, nil
+}
+
 // makeShellCmd creates an exec.Cmd that can run a shell script on any platform.
 // On Windows, it wraps the script with sh/bash from Git for Windows.
 func makeShellCmd(scriptPath string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
-		// Try to find sh.exe (bundled with Git for Windows)
-		sh, err := exec.LookPath("sh")
-		if err != nil {
-			sh, err = exec.LookPath("bash")
-		}
+		// Use Git for Windows' sh.exe — NOT WSL's bash.exe which uses /mnt/ paths.
+		sh, err := findGitShell()
 		if err == nil {
 			// Convert Windows path to forward-slash for sh
 			return exec.Command(sh, strings.ReplaceAll(scriptPath, "\\", "/"))
 		}
-		// Fallback: try running directly (will likely fail but gives clear error)
+		log.Printf("wt-merge: WARNING — could not find Git for Windows sh.exe: %v; falling back to PATH lookup", err)
+		// Fallback: try PATH-based lookup (may find WSL bash — not ideal)
+		sh2, err2 := exec.LookPath("sh")
+		if err2 != nil {
+			sh2, err2 = exec.LookPath("bash")
+		}
+		if err2 == nil {
+			return exec.Command(sh2, strings.ReplaceAll(scriptPath, "\\", "/"))
+		}
+		// Last resort: try running directly (will likely fail but gives clear error)
 	}
 	return exec.Command(scriptPath)
 }

@@ -92,6 +92,15 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | `max_tasks_generated` | 20 | 1 | 100 | count | Global cap on planner-generated tasks |
 | `max_agent_iterations` | 50 | 1 | 200 | count | Max total iterations before budget halt |
 | `max_runtime_minutes` | 120 | 1 | 480 | minutes | Max runtime before budget halt |
+| `exit42_restart_threshold` | 5 | — | — | count | Max exit-42 restarts without progress before task BLOCKED |
+| `exit42_max_backoff_seconds` | 60 | — | — | seconds | Cap on exponential backoff between exit-42 restarts |
+| `crash_retry_limit` | 5 | — | — | count | Max consecutive non-zero exits before task BLOCKED |
+| `crash_retry_base_delay_seconds` | 5 | — | — | seconds | Initial exponential backoff delay on crash |
+| `crash_retry_max_delay_seconds` | 120 | — | — | seconds | Cap on exponential backoff between crash retries |
+| `enforce_requirement_refs` | false | — | — | bool | Require tasks to have requirement_refs |
+| `enforce_deduplication` | false | — | — | bool | Reject duplicate task descriptions |
+| `require_audit_for_sprint_close` | false | — | — | bool | Require audit pass before closing sprint |
+| `diagnostic_logging` | false | — | — | bool | Enable verbose diagnostic log output |
 
 ### Agent Execution Timeouts
 
@@ -105,6 +114,19 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 When exceeded, supervisor kills CLI, resets agent to IDLE, retries after 5s delay.
 
 **Note:** Planners now respect `planner_max_wait` (default 30 minutes). Previously planners ran indefinitely; they now exit after the configured idle timeout, same as coders and reviewers.
+
+### Hardcoded Safety Limits
+
+These limits are not configurable via state.yaml:
+
+| Limit | Value | Purpose |
+|-------|-------|---------|
+| Merge CAS retries | 3 | Max retries when concurrent merges conflict |
+| Auditor stale-run limit | 3 | Consecutive runs without findings before auditor exits |
+| Anomaly: stagnation threshold | 3 | Consecutive same-task failures before HIGH alert |
+| Anomaly: no-diff retry threshold | 3 | Consecutive no-code-change iterations before MEDIUM alert |
+| File lock timeout | 10s | Max wait to acquire state.yaml lock |
+| MCP max request size | 10 MB | Max JSON-RPC request payload |
 
 ### Task Quality Gate
 
@@ -168,6 +190,34 @@ config:
   max_review_cycles: 3      # Fewer rejection cycles
   heartbeat_interval: 30    # Faster crash detection
 ```
+
+## System Modes
+
+### Auto-Approve (`--auto-approve`)
+
+The `--auto-approve` flag on `liza agent` commands passes `--dangerously-skip-permissions` to the underlying CLI (Claude, Codex, Gemini, etc.), suppressing interactive permission prompts.
+
+**What it controls:** CLI-level permission prompts only (file edits, shell commands, MCP tool calls).
+
+**What it does NOT control:**
+- Task review verdicts (reviewers still APPROVE/REJECT independently)
+- Merge gating (tasks must be APPROVED to merge)
+- Verification commands (still run and enforced)
+- State transitions (still validated against lifecycle rules)
+
+**When to enable it:**
+- Headless/unattended operation (CI/CD, overnight runs)
+- `.claude/settings.json` already grants all necessary permissions
+- You trust the agent's actions within the project scope
+
+**When NOT to enable it:**
+- First run on a new project (review what agents want to do)
+- Shared environments where agents could affect other users
+- Projects with destructive commands (database migrations, deploys)
+
+**Risk assessment:** LOW for Liza's use case. Liza's `.claude/settings.json` already pre-approves all known MCP tools and bash commands. Without `--auto-approve`, the CLI may hang on interactive prompts in non-interactive `-p` mode, which is worse than auto-approving pre-whitelisted operations.
+
+**Recommendation:** Enable `--auto-approve` for production multi-agent runs. The permission whitelist in `.claude/settings.json` is the real security boundary, not the interactive prompt.
 
 ## System Modes
 

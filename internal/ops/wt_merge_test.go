@@ -747,6 +747,74 @@ func TestMergeWorktree_TestsRanInHistory(t *testing.T) {
 	}
 }
 
+func TestMergeWorktree_VerifyCommandFailure(t *testing.T) {
+	taskID := "merge-verifyfail"
+	agentID := "coder-1"
+	tmpDir, stateFile := setupMergeTestRepo(t, taskID, agentID)
+
+	// Add a failing verify_command to the task
+	bb := db.New(stateFile)
+	if err := bb.Modify(func(s *models.State) error {
+		task := s.FindTask(taskID)
+		if task != nil {
+			if runtime.GOOS == "windows" {
+				task.VerifyCommands = []string{"exit /b 1"}
+			} else {
+				task.VerifyCommands = []string{"exit 1"}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("Failed to add verify_commands: %v", err)
+	}
+
+	_, err := MergeWorktree(tmpDir, taskID, agentID)
+	if err == nil {
+		t.Fatal("Expected error for verify failure, got nil")
+	}
+
+	var intErr *IntegrationFailedError
+	if !errors.As(err, &intErr) {
+		t.Fatalf("Expected *IntegrationFailedError, got %T: %v", err, err)
+	}
+
+	if intErr.Reason != IntegrationReasonTestsFailed {
+		t.Errorf("Reason = %q, want %q", intErr.Reason, IntegrationReasonTestsFailed)
+	}
+
+	// Verify state updated to INTEGRATION_FAILED
+	state := readStateForTest(t, stateFile)
+	task := state.FindTask(taskID)
+	if task == nil {
+		t.Fatal("Task not found in state")
+	}
+	if task.Status != models.TaskStatusIntegrationFailed {
+		t.Errorf("Task status = %v, want INTEGRATION_FAILED", task.Status)
+	}
+
+	// Verify the VerificationResult was persisted
+	if task.VerificationResult == nil {
+		t.Fatal("Expected VerificationResult to be persisted on task")
+	}
+	if task.VerificationResult.Passed {
+		t.Error("VerificationResult.Passed should be false")
+	}
+
+	// Verify integration branch was rolled back
+	cmd := exec.Command("git", "-C", tmpDir, "checkout", "integration")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to checkout integration: %v", err)
+	}
+	cmd = exec.Command("git", "-C", tmpDir, "log", "--oneline")
+	logOutput, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get git log: %v", err)
+	}
+	if strings.Contains(string(logOutput), "Test commit for "+taskID) {
+		t.Error("Integration branch should have been rolled back, but still contains the merged commit")
+	}
+}
+
 func TestMergeWorktree_NonNotExistStatErrorNotMisclassified(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows returns ErrNotExist (not ENOTDIR) when a path component is a regular file")

@@ -123,6 +123,8 @@ liza agent auditor --agent-id auditor-1
 
 Each agent command accepts a `--cli` flag to select the coding agent CLI: `claude` (default), `codex`, `gemini`, `mistral`, or `kimi`. For example: `liza agent coder --agent-id coder-1 --cli gemini`.
 
+Pass `--auto-approve` to skip CLI permission prompts (passes `--dangerously-skip-permissions` to the underlying CLI). This eliminates human confirmation for file edits, command execution, and MCP tool calls. Recommended for unattended/headless operation where `.claude/settings.json` already grants all necessary permissions. Without `--auto-approve`, the CLI may block on interactive prompts that can't be answered in `-p` mode.
+
 Pass `--log` to persist the agent's output to `.liza/agent-outputs/` (stdout as `.txt`, stderr as `.err`). Incompatible with `-i`.
 See [Analyzing Agent Logs](#analyzing-agent-logs) for analysis tools.
 
@@ -184,24 +186,107 @@ The planner does not auto-detect changes to `vision.md` between sprints. Each sp
 
 ### CLI Commands
 
-The `liza` binary provides all system operations. Key commands:
+The `liza` binary provides all system operations. Commands are organized by category:
+
+**Setup & Validation:**
 
 | Command | Purpose |
 |---------|---------|
 | `liza init <goal> --spec <spec_ref>` | Initialize .liza/ directory with blackboard (spec_ref defaults to specs/vision.md) |
-| `liza agent <role> --agent-id <id>` | Agent supervisor (start, restart, backoff loop) |
-| `liza claim-task <task-id> <agent-id>` | Atomically claim a task for a coder (creates worktree, updates state) |
+| `liza setup` | Install global files (~/.liza/ contracts, skills) |
 | `liza validate [state.yaml]` | Validate blackboard state against schema invariants |
-| `liza watch` | Monitor blackboard, alert on anomalies, and auto-checkpoint on circuit-breaker trigger or sprint stall |
-| `liza recover-task <task-id>` | Recover by task ID (release claims + remove worktree/branch + recover agent) |
-| `liza recover-agent <agent-id>` | Recover by agent ID (release claim + remove worktree + delete agent) |
-| `liza release-claim <task-id> [--role R]` | Release claim on a task (manual, granular recovery) |
-| `liza sprint-checkpoint` | Create a checkpoint (halt + summary) |
+| `liza validate-spec <spec_ref>` | Validate a spec file against Liza spec conventions |
+| `liza version` | Print Liza version |
+
+**Agent Supervision:**
+
+| Command | Purpose |
+|---------|---------|
+| `liza agent <role> --agent-id <id>` | Agent supervisor (start, restart, backoff loop) |
+
+Roles: `coder`, `code-reviewer`, `planner`, `auditor`. Flags: `--cli <name>`, `--auto-approve`, `--log`, `-i` (interactive).
+
+**Task Lifecycle (used by agents via MCP):**
+
+| Command | Purpose |
+|---------|---------|
+| `liza add-task` | Create a new task (planner) |
+| `liza claim-task <task-id> <agent-id>` | Claim a task (creates worktree, updates state) |
+| `liza write-checkpoint <task-id>` | Record pre-execution checkpoint (intent, files, validation plan) |
+| `liza submit-for-review <task-id> <commit>` | Submit implemented task for code review |
+| `liza handoff <task-id> <agent-id>` | Hand off task on context exhaustion |
+| `liza submit-verdict <task-id> <verdict>` | Submit review verdict (APPROVE/REJECT) |
+| `liza mark-blocked <task-id>` | Block task with reason and clarifying questions |
+| `liza release-claim <task-id> [--role R]` | Release claim on a task (manual recovery) |
+| `liza supersede-task <old-id> <new-id>` | Replace a blocked/rejected task |
+| `liza submit-audit-finding` | Submit structured audit finding (auditor) |
+
+**Worktree Operations:**
+
+| Command | Purpose |
+|---------|---------|
+| `liza wt-create <task-id>` | Create a Git worktree for a task |
+| `liza wt-delete <task-id>` | Remove a task's worktree and branch |
+| `liza wt-merge <task-id> <agent-id>` | Merge approved task to integration branch (CAS-safe, with tests) |
+
+**System Control:**
+
+| Command | Purpose |
+|---------|---------|
+| `liza pause` | Pause system (agents block, don't claim) |
+| `liza resume` | Resume from PAUSED or CIRCUIT_BREAKER_TRIPPED |
+| `liza stop` | Stop system (agents exit) |
+| `liza start` | Start from STOPPED |
+| `liza sprint-checkpoint` | Create checkpoint (halt + summary) |
+
+**Monitoring & Analysis:**
+
+| Command | Purpose |
+|---------|---------|
 | `liza status` | Show system status |
-| `liza pause` / `liza resume` | Pause/resume system |
-| `liza stop` / `liza start` | Stop/start system |
+| `liza watch` | Monitor blackboard, alert on anomalies, auto-checkpoint on circuit-breaker |
+| `liza analyze` | Run circuit-breaker analysis (detect systemic failure patterns) |
+| `liza update-sprint-metrics` | Recalculate sprint metrics from current state |
+| `liza clear-stale-review-claims` | Release expired reviewer claims |
+
+**Query (`liza get`):**
+
+| Command | Purpose |
+|---------|---------|
+| `liza get tasks [--format table\|json\|yaml]` | List tasks |
+| `liza get agents [--format table\|json\|yaml]` | List agents |
+| `liza get config` | Show configuration |
+| `liza get sprint` | Show sprint status |
+| `liza get findings` | List audit findings |
+
+**Recovery & Admin:**
+
+| Command | Purpose |
+|---------|---------|
+| `liza recover-task <task-id>` | Full task recovery (release claims + remove worktree/branch + recover agent) |
+| `liza recover-agent <agent-id>` | Full agent recovery (release claim + remove worktree + delete agent) |
+| `liza delete agent <agent-id>` | Delete an agent from state |
+| `liza delete task <task-id>` | Delete a task from state |
 
 **Important:** The supervisor claims tasks *before* starting the Claude agent. This avoids interactive permission prompts in `-p` (non-interactive) mode. Agents receive their assigned task in the bootstrap prompt and should NOT call claim commands directly.
+
+### MCP Tools
+
+Agents interact with Liza via MCP tools (JSON-RPC 2.0 over stdio). Every CLI mutation has an MCP equivalent. The MCP server (`liza-mcp`) registers 22 tools:
+
+**Read-Only:**
+`liza_get`, `liza_status`, `liza_validate`, `liza_version`
+
+**Task Mutations:**
+`liza_add_task`, `liza_claim_task`, `liza_submit_for_review`, `liza_handoff`, `liza_submit_verdict`, `liza_mark_blocked`, `liza_release_claim`, `liza_supersede_task`, `liza_submit_audit_finding`
+
+**Complex Operations:**
+`liza_wt_create`, `liza_wt_delete`, `liza_wt_merge`, `liza_analyze`, `liza_update_sprint_metrics`, `liza_sprint_checkpoint`, `liza_clear_stale_review_claims`, `liza_write_checkpoint`, `liza_delete_agent`
+
+**Resources (MCP resource protocol):**
+`liza://state` (full state), `liza://tasks` (task list), `liza://agents` (agent list)
+
+All MCP tools must be listed in `.claude/settings.json` permissions for Claude Code to invoke them. `liza init` generates this automatically.
 
 See [Architecture Overview](../specs/architecture/overview.md) for detailed component descriptions.
 
