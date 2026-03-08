@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -269,7 +270,8 @@ func TestVerifyCommandWithEscapedQuotes(t *testing.T) {
 func TestShellCommandPlatform(t *testing.T) {
 	t.Parallel()
 
-	cmd := ShellCommand(context.Background(), "echo test", t.TempDir())
+	cmd, cleanup := ShellCommand(context.Background(), "echo test", t.TempDir())
+	defer cleanup()
 	if runtime.GOOS == "windows" {
 		if cmd.Path == "" || cmd.Args[0] != "cmd" {
 			t.Errorf("expected cmd.exe on Windows, got: %v", cmd.Args)
@@ -278,5 +280,37 @@ func TestShellCommandPlatform(t *testing.T) {
 		if cmd.Path == "" || cmd.Args[0] != "sh" {
 			t.Errorf("expected sh on Unix, got: %v", cmd.Args)
 		}
+	}
+}
+
+// TestShellCommandQuotedArgsWindows is a regression test for the Windows
+// verify-command escaping bug. Go's exec.Command("cmd", "/C", cmdStr)
+// calls EscapeArg on cmdStr, which re-escapes quotes. The temp-file
+// approach bypasses this, ensuring "Test task" stays as a single arg.
+func TestShellCommandQuotedArgsWindows(t *testing.T) {
+	t.Parallel()
+
+	workdir := t.TempDir()
+
+	// A command with quoted arguments — the kind agents produce
+	var cmdStr string
+	if runtime.GOOS == "windows" {
+		// echo with quotes should preserve the full quoted string
+		cmdStr = `echo "hello world"`
+	} else {
+		cmdStr = `echo "hello world"`
+	}
+
+	cmd, cleanup := ShellCommand(context.Background(), cmdStr, workdir)
+	defer cleanup()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("ShellCommand with quoted args failed: %v\nOutput: %s", err, out)
+	}
+	output := strings.TrimSpace(string(out))
+	// On Windows cmd /C via temp file, echo "hello world" should output: "hello world"
+	// On Unix sh -c, it should output: hello world
+	if !strings.Contains(output, "hello world") {
+		t.Errorf("expected output to contain 'hello world', got: %q", output)
 	}
 }

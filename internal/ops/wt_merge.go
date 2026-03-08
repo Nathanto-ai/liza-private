@@ -364,10 +364,12 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 			vcmd = verify.SanitizeCommand(vcmd)
 			log.Printf("wt-merge %s: running verify command: %s", taskID, vcmd)
 			// Use platform-appropriate shell (sh on Unix, cmd on Windows)
-			cmd := verify.ShellCommand(context.Background(), vcmd, verifyDir)
+			cmd, cmdCleanup := verify.ShellCommand(context.Background(), vcmd, verifyDir)
 			cmd.Stdout = &verifyBuf
 			cmd.Stderr = &verifyBuf
-			if runErr := cmd.Run(); runErr != nil {
+			runErr := cmd.Run()
+			cmdCleanup()
+			if runErr != nil {
 				verifyBuf.WriteString(fmt.Sprintf("\n[FAIL] %s: %v\n", vcmd, runErr))
 				verifyPassed = false
 				break

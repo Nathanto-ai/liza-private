@@ -6,6 +6,7 @@ package verify
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -81,15 +82,36 @@ func SanitizeCommand(cmdStr string) string {
 
 // ShellCommand returns an exec.Cmd that runs cmdStr through the
 // platform-appropriate shell (sh -c on Unix, cmd /C on Windows).
-func ShellCommand(ctx context.Context, cmdStr, workdir string) *exec.Cmd {
-	var cmd *exec.Cmd
+//
+// On Windows, the command is written to a temporary .cmd file to avoid
+// Go's exec.Command argument escaping (syscall.EscapeArg) which
+// re-escapes quote characters, breaking commands that contain quoted
+// arguments like: python todo.py add "Test task"
+//
+// The caller must call the returned cleanup function when done.
+func ShellCommand(ctx context.Context, cmdStr, workdir string) (cmd *exec.Cmd, cleanup func()) {
+	cleanup = func() {} // no-op default
+
 	if runtime.GOOS == "windows" {
+		// Write command to a temp .cmd file to bypass Go's argument escaping.
+		// Go's EscapeArg would turn "Test task" into \"Test task\", which
+		// cmd.exe then mishandles (strips outer quotes, leaves backslashes).
+		tmpFile, err := os.CreateTemp(workdir, "liza-verify-*.cmd")
+		if err == nil {
+			_, _ = tmpFile.WriteString("@echo off\r\n" + cmdStr + "\r\n")
+			tmpFile.Close()
+			cmd = exec.CommandContext(ctx, "cmd", "/C", tmpFile.Name())
+			cmd.Dir = workdir
+			cleanup = func() { os.Remove(tmpFile.Name()) }
+			return cmd, cleanup
+		}
+		// Fallback: if temp file creation fails, use direct invocation
 		cmd = exec.CommandContext(ctx, "cmd", "/C", cmdStr)
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", cmdStr)
 	}
 	cmd.Dir = workdir
-	return cmd
+	return cmd, cleanup
 }
 
 // runCommand executes a single shell command and captures its output.
@@ -109,7 +131,8 @@ func runCommand(ctx context.Context, cmdStr, workdir string, cfg Config) Command
 	}
 	defer cancel()
 
-	cmd := ShellCommand(cmdCtx, cmdStr, workdir)
+	cmd, cleanup := ShellCommand(cmdCtx, cmdStr, workdir)
+	defer cleanup()
 
 	output, err := cmd.CombinedOutput()
 	duration := time.Since(start)
