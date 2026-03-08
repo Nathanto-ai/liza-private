@@ -176,3 +176,107 @@ func TestRunVerificationOutputCapture(t *testing.T) {
 		t.Error("expected non-zero duration")
 	}
 }
+
+// TestSanitizeCommand verifies that agent-double-escaped quotes are cleaned up.
+// Agents often produce \"arg with spaces\" instead of "arg with spaces" when
+// constructing MCP JSON calls, resulting in literal \\" in the stored command.
+func TestSanitizeCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "no escaping needed",
+			input: `echo hello`,
+			want:  `echo hello`,
+		},
+		{
+			name:  "double-escaped quotes stripped",
+			input: `python todo.py add \"Test task\"`,
+			want:  `python todo.py add "Test task"`,
+		},
+		{
+			name:  "multiple escaped pairs",
+			input: `cmd \"arg one\" \"arg two\"`,
+			want:  `cmd "arg one" "arg two"`,
+		},
+		{
+			name:  "already correct quoting unchanged",
+			input: `python -c "print('hi')"`,
+			want:  `python -c "print('hi')"`,
+		},
+		{
+			name:  "empty string",
+			input: "",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := SanitizeCommand(tt.input)
+			if got != tt.want {
+				t.Errorf("SanitizeCommand(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestVerifyCommandWithEscapedQuotes is a regression test for the Windows
+// verify-command escaping bug found during live pipeline testing.
+// The agent stored: python todo.py add \"Test task\"
+// Expected behavior: the sanitizer strips the \\ so the shell groups
+// "Test task" as a single argument.
+func TestVerifyCommandWithEscapedQuotes(t *testing.T) {
+	t.Parallel()
+
+	workdir := t.TempDir()
+
+	// Create a tiny script that prints its argument count
+	var script, cmd string
+	if runtime.GOOS == "windows" {
+		script = "@echo off\necho ARGS=%*"
+		scriptPath := filepath.Join(workdir, "check.cmd")
+		if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cmd = `check.cmd \"hello world\"`
+	} else {
+		script = "#!/bin/sh\necho \"ARGC=$#\""
+		scriptPath := filepath.Join(workdir, "check.sh")
+		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+		cmd = `sh check.sh \"hello world\"`
+	}
+
+	cfg := DefaultConfig()
+	cfg.Timeout = 10 * time.Second
+
+	ctx := context.Background()
+	result := RunVerification(ctx, []string{cmd}, workdir, cfg)
+
+	if !result.Passed {
+		t.Errorf("expected verify command to pass after sanitization, got: %s", result.Results[0].Output)
+	}
+}
+
+// TestShellCommandPlatform verifies ShellCommand uses the correct shell.
+func TestShellCommandPlatform(t *testing.T) {
+	t.Parallel()
+
+	cmd := ShellCommand(context.Background(), "echo test", t.TempDir())
+	if runtime.GOOS == "windows" {
+		if cmd.Path == "" || cmd.Args[0] != "cmd" {
+			t.Errorf("expected cmd.exe on Windows, got: %v", cmd.Args)
+		}
+	} else {
+		if cmd.Path == "" || cmd.Args[0] != "sh" {
+			t.Errorf("expected sh on Unix, got: %v", cmd.Args)
+		}
+	}
+}

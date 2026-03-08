@@ -2,6 +2,7 @@ package ops
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -18,6 +19,7 @@ import (
 	"github.com/liza-mas/liza/internal/git"
 	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/paths"
+	"github.com/liza-mas/liza/internal/verify"
 )
 
 // maxMergeRetries is the maximum number of CAS retry attempts for the merge loop.
@@ -358,9 +360,11 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 		var verifyBuf bytes.Buffer
 		verifyPassed := true
 		for _, vcmd := range task.VerifyCommands {
+			// Sanitize command (agents often double-escape quotes in MCP calls)
+			vcmd = verify.SanitizeCommand(vcmd)
 			log.Printf("wt-merge %s: running verify command: %s", taskID, vcmd)
-			cmd := exec.Command("sh", "-c", vcmd)
-			cmd.Dir = verifyDir
+			// Use platform-appropriate shell (sh on Unix, cmd on Windows)
+			cmd := verify.ShellCommand(context.Background(), vcmd, verifyDir)
 			cmd.Stdout = &verifyBuf
 			cmd.Stderr = &verifyBuf
 			if runErr := cmd.Run(); runErr != nil {

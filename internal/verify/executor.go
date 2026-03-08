@@ -69,9 +69,35 @@ func RunVerification(ctx context.Context, commands []string, workdir string, cfg
 	return result
 }
 
+// SanitizeCommand cleans up a verify command string for safe shell execution.
+// Agents often double-escape quotes in MCP JSON calls, producing literal
+// backslash-quote (\" → \") in the stored command. Neither sh -c nor
+// cmd /C treats \" as a grouping quote, so the arguments get split
+// incorrectly.  Stripping the backslash before each quote restores the
+// intended quoting behaviour on all platforms.
+func SanitizeCommand(cmdStr string) string {
+	return strings.ReplaceAll(cmdStr, `\"`, `"`)
+}
+
+// ShellCommand returns an exec.Cmd that runs cmdStr through the
+// platform-appropriate shell (sh -c on Unix, cmd /C on Windows).
+func ShellCommand(ctx context.Context, cmdStr, workdir string) *exec.Cmd {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd", "/C", cmdStr)
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", cmdStr)
+	}
+	cmd.Dir = workdir
+	return cmd
+}
+
 // runCommand executes a single shell command and captures its output.
 func runCommand(ctx context.Context, cmdStr, workdir string, cfg Config) CommandResult {
 	start := time.Now()
+
+	// Sanitize command to handle agent double-escaping
+	cmdStr = SanitizeCommand(cmdStr)
 
 	var cmdCtx context.Context
 	var cancel context.CancelFunc
@@ -83,14 +109,7 @@ func runCommand(ctx context.Context, cmdStr, workdir string, cfg Config) Command
 	}
 	defer cancel()
 
-	// Use shell to run the command string
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(cmdCtx, "cmd", "/C", cmdStr)
-	} else {
-		cmd = exec.CommandContext(cmdCtx, "sh", "-c", cmdStr)
-	}
-	cmd.Dir = workdir
+	cmd := ShellCommand(cmdCtx, cmdStr, workdir)
 
 	output, err := cmd.CombinedOutput()
 	duration := time.Since(start)
