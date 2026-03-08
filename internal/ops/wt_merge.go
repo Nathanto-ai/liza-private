@@ -317,14 +317,31 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 	}
 
 	// Run task-specific verify_commands if defined (hard gate — failure → INTEGRATION_FAILED)
+	// Verify commands run in a temporary worktree of the integration branch (post-merge)
+	// so they test the merged result, not the pre-existing project root.
 	var verifyResult *models.VerificationResult
 	if len(task.VerifyCommands) > 0 {
+		// Create a temporary worktree from the merge commit for verification
+		verifyDir := filepath.Join(projectRoot, ".worktrees", taskID+"-verify")
+		addCmd := exec.Command("git", "worktree", "add", "--detach", verifyDir, mergeCommit)
+		addCmd.Dir = projectRoot
+		if addErr := addCmd.Run(); addErr != nil {
+			log.Printf("wt-merge %s: failed to create verify worktree: %v — falling back to task worktree", taskID, addErr)
+			verifyDir = *task.Worktree
+		}
+		defer func() {
+			// Clean up the temporary verify worktree
+			rmCmd := exec.Command("git", "worktree", "remove", "--force", verifyDir)
+			rmCmd.Dir = projectRoot
+			_ = rmCmd.Run()
+		}()
+
 		var verifyBuf bytes.Buffer
 		verifyPassed := true
 		for _, vcmd := range task.VerifyCommands {
 			log.Printf("wt-merge %s: running verify command: %s", taskID, vcmd)
 			cmd := exec.Command("sh", "-c", vcmd)
-			cmd.Dir = projectRoot
+			cmd.Dir = verifyDir
 			cmd.Stdout = &verifyBuf
 			cmd.Stderr = &verifyBuf
 			if runErr := cmd.Run(); runErr != nil {
