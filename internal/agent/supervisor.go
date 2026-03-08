@@ -535,6 +535,14 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 	anomaly := runtime.NewAnomalyDetector()
 	var iterationHistory []runtime.IterationRecord
 
+	// Auditor stale-target tracker: detects when the auditor keeps targeting the
+	// same task without making progress (e.g., CLI can't submit findings via MCP).
+	// After maxAuditorStaleRuns consecutive no-progress runs on the same target set,
+	// the supervisor exits to prevent infinite loops.
+	const maxAuditorStaleRuns = 3
+	auditorPrevFindingCount := -1 // -1 = not yet initialized
+	auditorStaleRuns := 0
+
 	for {
 		// Check context cancellation (signal received)
 		if ctx.Err() != nil {
@@ -726,6 +734,40 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 					GetLogger().Warn("Planner state verification failed",
 						"error", err,
 						"hint", "Agent may not have executed required commands - check prompt file")
+				}
+			}
+
+			// Auditor stale-target detection: if the auditor exits 0 but
+			// didn't add any new findings, it's stuck (e.g., CLI can't call
+			// MCP submit_audit_finding). After maxAuditorStaleRuns consecutive
+			// no-progress iterations, exit to prevent infinite looping.
+			if config.Role == roles.RuntimeAuditor {
+				currentState, readErr := bb.Read()
+				if readErr == nil {
+					currentFindingCount := len(currentState.AuditFindings)
+					if auditorPrevFindingCount < 0 {
+						// First run: initialize baseline
+						auditorPrevFindingCount = currentFindingCount
+					}
+					if currentFindingCount > auditorPrevFindingCount {
+						// Progress made — reset tracker
+						auditorStaleRuns = 0
+						auditorPrevFindingCount = currentFindingCount
+					} else {
+						auditorStaleRuns++
+						GetLogger().Warn("Auditor completed without adding findings",
+							"stale_runs", auditorStaleRuns,
+							"max_stale_runs", maxAuditorStaleRuns,
+							"finding_count", currentFindingCount,
+							"agent_id", config.AgentID)
+						if auditorStaleRuns >= maxAuditorStaleRuns {
+							GetLogger().Error("Auditor stale-target limit reached — agent cannot submit findings, exiting",
+								"stale_runs", auditorStaleRuns,
+								"finding_count", currentFindingCount,
+								"agent_id", config.AgentID)
+							return nil
+						}
+					}
 				}
 			}
 

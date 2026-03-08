@@ -180,6 +180,35 @@ func RecoverTask(projectRoot, taskID string, force bool, reason string) (*Recove
 		// Clear worktree reference
 		task.Worktree = nil
 
+		// Reset stuck statuses to READY after claim release.
+		// releaseOneClaim only handles IMPLEMENTING→READY and REVIEWING→READY_FOR_REVIEW.
+		// Tasks stuck in other mid-pipeline states (INTEGRATION_FAILED, APPROVED,
+		// REJECTED, BLOCKED, READY_FOR_REVIEW) need explicit reset.
+		stuckStatuses := map[models.TaskStatus]bool{
+			models.TaskStatusIntegrationFailed:  true,
+			models.TaskStatusApproved:           true,
+			models.TaskStatusRejected:           true,
+			models.TaskStatusBlocked:            true,
+			models.TaskStatusNeedsHumanDecision: true,
+		}
+		if stuckStatuses[task.Status] {
+			prevStatus := string(task.Status)
+			task.Status = models.TaskStatusReady
+			// Clear fields that don't apply after status reset
+			task.ReviewCommit = nil
+			task.ApprovedBy = nil
+			task.MergeCommit = nil
+			task.BlockedReason = nil
+			task.BlockedQuestions = nil
+			task.FailedBy = nil
+			resetReason := fmt.Sprintf("recover-task reset from %s to READY", prevStatus)
+			task.History = append(task.History, models.TaskHistoryEntry{
+				Time:   now,
+				Event:  "status_reset",
+				Reason: &resetReason,
+			})
+		}
+
 		// Recover agents that held claims on this task
 		for agentID := range agentsToRecover {
 			if _, exists := state.Agents[agentID]; exists {
