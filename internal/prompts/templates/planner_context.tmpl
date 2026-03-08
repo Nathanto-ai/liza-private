@@ -21,10 +21,32 @@ SPRINT STATE:
 - Integration failed: {{.IntegrationFailed}}
 - Hypothesis exhausted: {{.HypothesisExhausted}}
 - Immediate discoveries: {{.ImmediateDiscoveries}}
+{{- if .AuditFindings}}
+- Audit findings: {{len .AuditFindings}} ({{.UnresolvedRemediation}} unresolved REMEDIATE_WITH_TASK, {{.UnresolvedReplan}} unresolved REPLAN_REQUIRED)
+{{- end}}
+{{- if .AuditFindings}}
+
+=== AUDIT FINDINGS ===
+{{range .AuditFindings}}
+FINDING: {{.ID}}
+  Task: {{.TaskID}}
+  Severity: {{.Severity}}
+  Type: {{.Type}}
+  Classification: {{.Classification}}
+  Resolved: {{.Resolved}}
+  {{- if .LinkedTaskID}}
+  Linked Task: {{.LinkedTaskID}}
+  {{- end}}
+  Evidence: {{.Evidence}}
+  {{- if .RecommendedAction}}
+  Recommended Action: {{.RecommendedAction}}
+  {{- end}}
+{{end}}
+{{- end}}
 
 PLANNER COMMANDS:
 - liza_add_task — Add task to blackboard (atomic, with validation)
-  Tool parameters: {"id": "...", "desc": "...", "spec": "...", "done": "...", "scope": "...", "priority": N, "depends": [...], "requirement_refs": ["R1", "R2"], "acceptance_criteria": ["AC-1: ..."], "verify_commands": ["pytest tests/..."], "error_behavior": "...", "agent_id": "planner-1"}
+  Tool parameters: {"id": "...", "desc": "...", "spec": "...", "done": "...", "scope": "...", "priority": N, "depends": [...], "requirement_refs": ["R1", "R2"], "acceptance_criteria": ["AC-1: ..."], "verify_commands": ["pytest tests/..."], "error_behavior": "...", "origin_finding_id": "finding-id-if-remediating-audit-finding", "agent_id": "planner-1"}
 - liza_supersede_task — Supersede task
   Tool parameters: {"task_id": "...", "replacement_ids": [...], "reason": "...", "agent_id": "planner-1"}
 - liza_wt_delete — Delete worktree for abandoned/superseded/blocked tasks

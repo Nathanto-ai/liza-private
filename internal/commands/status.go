@@ -350,6 +350,38 @@ func detectPlannerWakeTriggers(state *models.State) (trigger string, count int) 
 		return "IMMEDIATE_DISCOVERY", immediateDiscoveries
 	}
 
+	// Audit findings: unresolved REPLAN_REQUIRED and REMEDIATE_WITH_TASK
+	// must fire before SPRINT_COMPLETE so the planner addresses them first
+	// Also check task OriginFindingID as fallback for finding linkage
+	taskOrigins := make(map[string]bool)
+	for _, t := range state.Tasks {
+		if t.OriginFindingID != "" {
+			taskOrigins[t.OriginFindingID] = true
+		}
+	}
+
+	unresolvedReplan := 0
+	unresolvedRemediation := 0
+	for _, f := range state.AuditFindings {
+		if f.Resolved {
+			continue
+		}
+		switch f.Classification {
+		case "REPLAN_REQUIRED":
+			unresolvedReplan++
+		case "REMEDIATE_WITH_TASK":
+			if f.LinkedTaskID == "" && !taskOrigins[f.ID] {
+				unresolvedRemediation++
+			}
+		}
+	}
+	if unresolvedReplan > 0 {
+		return "AUDIT_REPLAN_REQUIRED", unresolvedReplan
+	}
+	if unresolvedRemediation > 0 {
+		return "AUDIT_REMEDIATION_NEEDED", unresolvedRemediation
+	}
+
 	if state.AllPlannedTasksTerminal() {
 		return "SPRINT_COMPLETE", len(state.Sprint.Scope.Planned)
 	}

@@ -455,6 +455,10 @@ func (s *Server) registerMutationTools() {
 					Description: "Task type determining role workflow (default: coding)",
 					Default:     "coding",
 				},
+				"origin_finding_id": {
+					Type:        "string",
+					Description: "Audit finding ID this task remediates (auto-links the finding)",
+				},
 				"agent_id": {
 					Type:        "string",
 					Description: "Agent ID performing the action (default: planner-1)",

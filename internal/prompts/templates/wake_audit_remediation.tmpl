@@ -1,0 +1,16 @@
+{{- define "wake_audit_remediation" -}}
+Audit findings classified as REMEDIATE_WITH_TASK need new remediation tasks.
+The auditor has identified issues that should be fixed in dedicated tasks.
+
+YOUR TASK:
+1. Read the blackboard to see all unresolved REMEDIATE_WITH_TASK audit findings
+2. For each finding without a linked remediation task:
+   a. Create a new task to address the issue (use liza_add_task)
+   b. IMPORTANT: Pass "origin_finding_id" with the finding's ID (e.g. "cli-001") to auto-link the finding
+   c. The task description should reference the audit finding
+   d. Include the finding's evidence and recommended action
+   e. Ensure the task has proper acceptance criteria and verify commands
+3. After creating all remediation tasks, update sprint metrics
+
+Do NOT create a sprint checkpoint. The remediation tasks need to be completed first.
+{{- end -}}

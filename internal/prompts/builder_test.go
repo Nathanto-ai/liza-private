@@ -310,6 +310,62 @@ func TestBuildPlannerContext(t *testing.T) {
 	}
 }
 
+// TestBuildPlannerContext_AuditRemediationTrigger is a regression test ensuring
+// that REMEDIATE_WITH_TASK audit findings trigger the remediation wake
+// instruction and include the findings in the prompt context.
+func TestBuildPlannerContext_AuditRemediationTrigger(t *testing.T) {
+	now := time.Now().UTC()
+
+	state := testhelpers.CreateValidState()
+	state.Tasks = []models.Task{
+		testhelpers.BuildTaskByStatus("task-1", models.TaskStatusMerged, now),
+	}
+	state.Sprint.Scope.Planned = []string{"task-1"}
+	state.AuditFindings = []models.AuditFinding{
+		{
+			ID:                "cli-001",
+			TaskID:            "task-1",
+			Severity:          "MEDIUM",
+			Type:              "QUALITY_ISSUE",
+			Phase:             "post_merge",
+			Classification:    "REMEDIATE_WITH_TASK",
+			Evidence:          "uses err == instead of errors.Is()",
+			RecommendedAction: "Create task to fix error comparison",
+			Created:           now,
+			Resolved:          false,
+			LinkedTaskID:      "",
+		},
+	}
+
+	config := PlannerContextConfig{}
+	result, err := BuildPlannerContext(state, config)
+	if err != nil {
+		t.Fatalf("BuildPlannerContext() error: %v", err)
+	}
+
+	wantContains := []string{
+		"WAKE TRIGGER: AUDIT_REMEDIATION_NEEDED",
+		"AUDIT FINDINGS",
+		"cli-001",
+		"REMEDIATE_WITH_TASK",
+		"uses err == instead of errors.Is()",
+		"Create task to fix error comparison",
+		"unresolved REMEDIATE_WITH_TASK",
+		"Do NOT create a sprint checkpoint",
+	}
+
+	for _, want := range wantContains {
+		if !strings.Contains(result, want) {
+			t.Errorf("BuildPlannerContext() missing expected content: %q\n\nFull output:\n%s", want, result)
+		}
+	}
+
+	// Must NOT contain SPRINT_COMPLETE
+	if strings.Contains(result, "SPRINT_COMPLETE") {
+		t.Error("BuildPlannerContext() should NOT contain SPRINT_COMPLETE when audit remediation is needed")
+	}
+}
+
 func TestBuildCoderContext(t *testing.T) {
 	now := time.Now().UTC()
 

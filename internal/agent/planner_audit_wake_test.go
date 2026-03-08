@@ -148,15 +148,14 @@ func TestDetectPlannerWakeTriggers_AuditFindings(t *testing.T) {
 		}
 
 		result := DetectPlannerWakeTriggers(state)
-		// SprintComplete fires first since all planned tasks are terminal,
-		// but REPLAN_REQUIRED is lower priority. Check the trigger order:
+		// Audit triggers now fire BEFORE SprintComplete so that remediation
+		// work is addressed before the sprint is checkpointed.
 		// Priority: InitialPlanning > Blocked > IntegrationFailed >
-		//   HypothesisExhausted > ImmediateDiscovery > SprintComplete >
-		//   ReplanRequired > RemediationNeeded
-		// Since task-1 is merged and planned=["task-1"], SprintComplete fires first.
-		if result.Trigger != WakeTriggerSprintComplete {
-			t.Errorf("Trigger = %q, want %q (SprintComplete fires before ReplanRequired)",
-				result.Trigger, WakeTriggerSprintComplete)
+		//   HypothesisExhausted > ImmediateDiscovery > ReplanRequired >
+		//   RemediationNeeded > SprintComplete
+		if result.Trigger != WakeTriggerReplanRequired {
+			t.Errorf("Trigger = %q, want %q (ReplanRequired fires before SprintComplete)",
+				result.Trigger, WakeTriggerReplanRequired)
 		}
 	})
 
@@ -220,4 +219,80 @@ func TestDetectPlannerWakeTriggers_AuditFindings(t *testing.T) {
 			t.Errorf("Count = %d, want 1", result.Count)
 		}
 	})
+}
+
+// TestAuditRemediationPriorityOverSprintComplete is a regression test for the
+// audit→planner pipeline fix. REMEDIATE_WITH_TASK findings must fire before
+// SPRINT_COMPLETE, otherwise the planner checkpoints the sprint without
+// creating remediation tasks.
+func TestAuditRemediationPriorityOverSprintComplete(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+
+	// Setup: all planned tasks are MERGED (sprint would be complete)
+	// AND there's an unresolved REMEDIATE_WITH_TASK finding
+	state := testhelpers.CreateValidState()
+	state.Tasks = []models.Task{
+		testhelpers.BuildTaskByStatus("task-1", models.TaskStatusMerged, now),
+		testhelpers.BuildTaskByStatus("task-2", models.TaskStatusMerged, now),
+	}
+	state.Sprint.Scope.Planned = []string{"task-1", "task-2"}
+	state.AuditFindings = []models.AuditFinding{
+		{
+			ID:             "f-remediation",
+			TaskID:         "task-2",
+			Severity:       "MEDIUM",
+			Type:           "QUALITY_ISSUE",
+			Phase:          "post_merge",
+			Classification: "REMEDIATE_WITH_TASK",
+			Evidence:       "uses err == instead of errors.Is()",
+			Created:        now,
+			Resolved:       false,
+			LinkedTaskID:   "",
+		},
+	}
+
+	result := DetectPlannerWakeTriggers(state)
+
+	// REMEDIATE_WITH_TASK must fire BEFORE SPRINT_COMPLETE
+	if result.Trigger != WakeTriggerRemediationNeeded {
+		t.Errorf("Trigger = %q, want %q — audit remediation must take priority over sprint complete",
+			result.Trigger, WakeTriggerRemediationNeeded)
+	}
+	if result.Count != 1 {
+		t.Errorf("Count = %d, want 1", result.Count)
+	}
+}
+
+// TestAuditRemediationResolvedFallsThruToSprintComplete verifies that once
+// a REMEDIATE_WITH_TASK finding is resolved (or has a linked task), the
+// detector falls through to SPRINT_COMPLETE as normal.
+func TestAuditRemediationResolvedFallsThruToSprintComplete(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+
+	state := testhelpers.CreateValidState()
+	state.Tasks = []models.Task{
+		testhelpers.BuildTaskByStatus("task-1", models.TaskStatusMerged, now),
+	}
+	state.Sprint.Scope.Planned = []string{"task-1"}
+	state.AuditFindings = []models.AuditFinding{
+		{
+			ID:             "f-resolved",
+			TaskID:         "task-1",
+			Severity:       "LOW",
+			Type:           "QUALITY_ISSUE",
+			Phase:          "post_merge",
+			Classification: "REMEDIATE_WITH_TASK",
+			Evidence:       "fixed issue",
+			Created:        now,
+			Resolved:       true, // resolved — should not trigger
+		},
+	}
+
+	result := DetectPlannerWakeTriggers(state)
+	if result.Trigger != WakeTriggerSprintComplete {
+		t.Errorf("Trigger = %q, want %q — resolved findings should fall through to sprint complete",
+			result.Trigger, WakeTriggerSprintComplete)
+	}
 }

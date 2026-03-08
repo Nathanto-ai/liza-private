@@ -48,18 +48,21 @@ func BuildBasePrompt(config BasePromptConfig) (string, error) {
 
 // plannerContextData is the template data for planner_context.tmpl
 type plannerContextData struct {
-	WakeTrigger          string
-	SprintNumber         int
-	SprintHistory        []models.SprintSummary
-	TotalTasks           int
-	Merged               int
-	InProgress           int
-	Unclaimed            int
-	Blocked              int
-	IntegrationFailed    int
-	HypothesisExhausted  int
-	ImmediateDiscoveries int
-	WakeInstructions     string
+	WakeTrigger           string
+	SprintNumber          int
+	SprintHistory         []models.SprintSummary
+	TotalTasks            int
+	Merged                int
+	InProgress            int
+	Unclaimed             int
+	Blocked               int
+	IntegrationFailed     int
+	HypothesisExhausted   int
+	ImmediateDiscoveries  int
+	WakeInstructions      string
+	AuditFindings         []models.AuditFinding
+	UnresolvedRemediation int
+	UnresolvedReplan      int
 }
 
 // BuildPlannerContext creates planner-specific context with sprint state
@@ -88,7 +91,32 @@ func BuildPlannerContext(state *models.State, config PlannerContextConfig) (stri
 		}
 	}
 
-	wakeTrigger := determineWakeTrigger(totalTasks, blocked, integrationFailed, hypothesisExhausted, immediateDiscoveries, state.AllPlannedTasksTerminal())
+	// Count unresolved audit findings
+	// Also check task OriginFindingID as fallback for finding linkage
+	taskOrigins := make(map[string]bool)
+	for _, t := range state.Tasks {
+		if t.OriginFindingID != "" {
+			taskOrigins[t.OriginFindingID] = true
+		}
+	}
+
+	unresolvedRemediation := 0
+	unresolvedReplan := 0
+	for _, f := range state.AuditFindings {
+		if f.Resolved {
+			continue
+		}
+		switch f.Classification {
+		case "REMEDIATE_WITH_TASK":
+			if f.LinkedTaskID == "" && !taskOrigins[f.ID] {
+				unresolvedRemediation++
+			}
+		case "REPLAN_REQUIRED":
+			unresolvedReplan++
+		}
+	}
+
+	wakeTrigger := determineWakeTrigger(totalTasks, blocked, integrationFailed, hypothesisExhausted, immediateDiscoveries, unresolvedReplan, unresolvedRemediation, state.AllPlannedTasksTerminal())
 
 	wakeInstructions, err := buildInstructionsForWakeTrigger(wakeTrigger, state.Goal.SpecRef)
 	if err != nil {
@@ -96,18 +124,21 @@ func BuildPlannerContext(state *models.State, config PlannerContextConfig) (stri
 	}
 
 	data := plannerContextData{
-		WakeTrigger:          wakeTrigger,
-		SprintNumber:         state.Sprint.Number,
-		SprintHistory:        state.SprintHistory,
-		TotalTasks:           totalTasks,
-		Merged:               merged,
-		InProgress:           inProgress,
-		Unclaimed:            unclaimed,
-		Blocked:              blocked,
-		IntegrationFailed:    integrationFailed,
-		HypothesisExhausted:  hypothesisExhausted,
-		ImmediateDiscoveries: immediateDiscoveries,
-		WakeInstructions:     wakeInstructions,
+		WakeTrigger:           wakeTrigger,
+		SprintNumber:          state.Sprint.Number,
+		SprintHistory:         state.SprintHistory,
+		TotalTasks:            totalTasks,
+		Merged:                merged,
+		InProgress:            inProgress,
+		Unclaimed:             unclaimed,
+		Blocked:               blocked,
+		IntegrationFailed:     integrationFailed,
+		HypothesisExhausted:   hypothesisExhausted,
+		ImmediateDiscoveries:  immediateDiscoveries,
+		WakeInstructions:      wakeInstructions,
+		AuditFindings:         state.AuditFindings,
+		UnresolvedRemediation: unresolvedRemediation,
+		UnresolvedReplan:      unresolvedReplan,
 	}
 	return executeTemplate("planner_context", data)
 }
@@ -229,7 +260,7 @@ func countTasksByStatus(tasks []models.Task, status models.TaskStatus) int {
 }
 
 // determineWakeTrigger determines what triggered the planner to wake
-func determineWakeTrigger(totalTasks, blocked, integrationFailed, hypothesisExhausted, immediateDiscoveries int, sprintComplete bool) string {
+func determineWakeTrigger(totalTasks, blocked, integrationFailed, hypothesisExhausted, immediateDiscoveries, unresolvedReplan, unresolvedRemediation int, sprintComplete bool) string {
 	if totalTasks == 0 {
 		return "INITIAL_PLANNING"
 	}
@@ -244,6 +275,12 @@ func determineWakeTrigger(totalTasks, blocked, integrationFailed, hypothesisExha
 	}
 	if immediateDiscoveries > 0 {
 		return "IMMEDIATE_DISCOVERY"
+	}
+	if unresolvedReplan > 0 {
+		return "AUDIT_REPLAN_REQUIRED"
+	}
+	if unresolvedRemediation > 0 {
+		return "AUDIT_REMEDIATION_NEEDED"
 	}
 	if sprintComplete {
 		return "SPRINT_COMPLETE"
@@ -269,6 +306,10 @@ func buildInstructionsForWakeTrigger(wakeTrigger, goalSpecRef string) (string, e
 		return executeTemplate("wake_hypothesis_exhausted", nil)
 	case "IMMEDIATE_DISCOVERY":
 		return executeTemplate("wake_immediate_discovery", nil)
+	case "AUDIT_REPLAN_REQUIRED":
+		return executeTemplate("wake_audit_replan", nil)
+	case "AUDIT_REMEDIATION_NEEDED":
+		return executeTemplate("wake_audit_remediation", nil)
 	case "SPRINT_COMPLETE":
 		return executeTemplate("wake_sprint_complete", nil)
 	default:

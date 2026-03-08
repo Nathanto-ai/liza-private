@@ -272,6 +272,7 @@ func (s *Server) handleAddTask(params map[string]any) (any, error) {
 	errorBehavior, _ := params["error_behavior"].(string)
 
 	taskType, _ := params["type"].(string)
+	originFindingID, _ := params["origin_finding_id"].(string)
 
 	input := &ops.AddTaskInput{
 		ID:                 id,
@@ -286,6 +287,7 @@ func (s *Server) handleAddTask(params map[string]any) (any, error) {
 		AcceptanceCriteria: acceptanceCriteria,
 		VerifyCommands:     verifyCommands,
 		ErrorBehavior:      errorBehavior,
+		OriginFindingID:    originFindingID,
 	}
 
 	statePath := paths.New(s.projectRoot).StatePath()

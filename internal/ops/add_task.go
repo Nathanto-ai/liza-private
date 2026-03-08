@@ -161,6 +161,16 @@ func AddTask(statePath, logPath string, input *AddTaskInput, plannerID string) (
 			state.Sprint.Scope.Planned = append(state.Sprint.Scope.Planned, input.ID)
 		}
 
+		// Auto-link audit finding when origin_finding_id is provided
+		if input.OriginFindingID != "" {
+			for i := range state.AuditFindings {
+				if state.AuditFindings[i].ID == input.OriginFindingID {
+					state.AuditFindings[i].LinkedTaskID = input.ID
+					break
+				}
+			}
+		}
+
 		alignmentEntry := models.AlignmentHistory{
 			Timestamp: now,
 			Event:     "planning",

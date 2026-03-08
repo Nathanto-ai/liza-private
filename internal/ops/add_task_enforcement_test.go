@@ -242,3 +242,87 @@ func setupForAddTask(t *testing.T, state *models.State) (statePath, logPath stri
 	os.MkdirAll(filepath.Dir(logPath), 0755)
 	return statePath, logPath
 }
+
+// TestAddTask_OriginFindingAutoLink verifies that passing origin_finding_id
+// automatically sets LinkedTaskID on the matching audit finding.
+func TestAddTask_OriginFindingAutoLink(t *testing.T) {
+	t.Parallel()
+
+	state := testhelpers.CreateValidState()
+	state.AuditFindings = []models.AuditFinding{
+		{
+			ID:             "cli-001",
+			TaskID:         "some-task",
+			Severity:       "MEDIUM",
+			Type:           "QUALITY_ISSUE",
+			Classification: "REMEDIATE_WITH_TASK",
+			Evidence:       "bad error handling",
+		},
+		{
+			ID:             "cli-002",
+			TaskID:         "some-task",
+			Severity:       "LOW",
+			Type:           "MISSING_EDGE_CASE",
+			Classification: "LOG_ONLY",
+			Evidence:       "missing edge case tests",
+		},
+	}
+
+	tmpDir := t.TempDir()
+	testhelpers.SetupTestGitRepo(t, tmpDir)
+	statePath, _ := testhelpers.SetupLizaDir(t, tmpDir)
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	bb := testhelpers.WriteInitialState(t, statePath, state)
+	logPath := filepath.Join(tmpDir, ".liza", "liza.log")
+	os.MkdirAll(filepath.Dir(logPath), 0755)
+
+	input := &AddTaskInput{
+		ID:              "fix-errors",
+		Description:     "Fix error handling for cli-001",
+		SpecRef:         "specs/vision.md",
+		DoneWhen:        "errors.Is used",
+		Scope:           "CLI error handling",
+		Priority:        1,
+		OriginFindingID: "cli-001",
+		RequirementRefs: []string{"R1"},
+	}
+
+	result, err := AddTask(statePath, logPath, input, "planner-1")
+	if err != nil {
+		t.Fatalf("AddTask failed: %v", err)
+	}
+	if result.TaskID != "fix-errors" {
+		t.Fatalf("wrong task ID: %s", result.TaskID)
+	}
+
+	// Verify the finding was auto-linked
+	finalState, err := bb.Read()
+	if err != nil {
+		t.Fatalf("failed to read state: %v", err)
+	}
+
+	var found bool
+	for _, f := range finalState.AuditFindings {
+		if f.ID == "cli-001" {
+			found = true
+			if f.LinkedTaskID != "fix-errors" {
+				t.Errorf("cli-001 LinkedTaskID = %q, want %q", f.LinkedTaskID, "fix-errors")
+			}
+		}
+		if f.ID == "cli-002" && f.LinkedTaskID != "" {
+			t.Errorf("cli-002 should NOT be linked, got LinkedTaskID = %q", f.LinkedTaskID)
+		}
+	}
+	if !found {
+		t.Fatal("cli-001 finding not found in state")
+	}
+
+	// Verify the task itself has OriginFindingID
+	task := finalState.FindTask("fix-errors")
+	if task == nil {
+		t.Fatal("task not found")
+	}
+	if task.OriginFindingID != "cli-001" {
+		t.Errorf("task OriginFindingID = %q, want %q", task.OriginFindingID, "cli-001")
+	}
+}

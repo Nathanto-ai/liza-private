@@ -67,16 +67,6 @@ var plannerWakeTriggerSpecs = []plannerWakeTriggerSpec{
 		Count:       countImmediateDiscoveries,
 	},
 	{
-		Trigger:     WakeTriggerSprintComplete,
-		Description: "All planned tasks are terminal and the sprint can be closed out.",
-		Count: func(state *models.State) int {
-			if state.AllPlannedTasksTerminal() {
-				return len(state.Sprint.Scope.Planned)
-			}
-			return 0
-		},
-	},
-	{
 		Trigger:     WakeTriggerReplanRequired,
 		Description: "Audit findings with REPLAN_REQUIRED classification need planner intervention.",
 		Count:       countUnresolvedReplanFindings,
@@ -85,6 +75,16 @@ var plannerWakeTriggerSpecs = []plannerWakeTriggerSpec{
 		Trigger:     WakeTriggerRemediationNeeded,
 		Description: "Audit findings with REMEDIATE_WITH_TASK classification need remediation tasks.",
 		Count:       countUnresolvedRemediationFindings,
+	},
+	{
+		Trigger:     WakeTriggerSprintComplete,
+		Description: "All planned tasks are terminal and the sprint can be closed out.",
+		Count: func(state *models.State) int {
+			if state.AllPlannedTasksTerminal() {
+				return len(state.Sprint.Scope.Planned)
+			}
+			return 0
+		},
 	},
 }
 
@@ -96,9 +96,9 @@ var plannerWakeTriggerSpecs = []plannerWakeTriggerSpec{
 // 3. Integration failed
 // 4. Hypothesis exhausted (2+ failed_by)
 // 5. Immediate discoveries (not yet converted to tasks)
-// 6. Sprint complete (all planned tasks terminal)
-// 7. Audit REPLAN_REQUIRED (unresolved findings requiring plan changes)
-// 8. Audit REMEDIATE_WITH_TASK (findings needing new remediation tasks)
+// 6. Audit REPLAN_REQUIRED (unresolved findings requiring plan changes)
+// 7. Audit REMEDIATE_WITH_TASK (findings needing new remediation tasks)
+// 8. Sprint complete (all planned tasks terminal)
 func DetectPlannerWakeTriggers(state *models.State) PlannerWakeResult {
 	for _, triggerSpec := range plannerWakeTriggerSpecs {
 		if count := triggerSpec.Count(state); count > 0 {
@@ -159,10 +159,19 @@ func countUnresolvedReplanFindings(state *models.State) int {
 
 // countUnresolvedRemediationFindings counts audit findings classified as
 // REMEDIATE_WITH_TASK that have no linked remediation task yet.
+// Checks both LinkedTaskID on the finding and OriginFindingID on tasks.
 func countUnresolvedRemediationFindings(state *models.State) int {
+	// Build set of finding IDs that have a task with matching OriginFindingID
+	taskOrigins := make(map[string]bool)
+	for _, t := range state.Tasks {
+		if t.OriginFindingID != "" {
+			taskOrigins[t.OriginFindingID] = true
+		}
+	}
+
 	count := 0
 	for _, f := range state.AuditFindings {
-		if f.Classification == "REMEDIATE_WITH_TASK" && !f.Resolved && f.LinkedTaskID == "" {
+		if f.Classification == "REMEDIATE_WITH_TASK" && !f.Resolved && f.LinkedTaskID == "" && !taskOrigins[f.ID] {
 			count++
 		}
 	}
