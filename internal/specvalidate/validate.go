@@ -162,4 +162,3 @@ func checkOpenQuestions(sections []Section, result *ValidationResult) {
 		}
 	}
 }
-
