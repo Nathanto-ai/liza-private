@@ -691,6 +691,11 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		}
 		GetLogger().Info("Prompt saved", "file", promptFile)
 
+		// Capture auditor baseline BEFORE execution so we can detect progress
+		if config.Role == roles.RuntimeAuditor && auditorPrevFindingCount < 0 {
+			auditorPrevFindingCount = len(state.AuditFindings)
+		}
+
 		// Execute agent
 		exitCode, err := executeAgent(ctx, config, prompt)
 		if err != nil {
@@ -745,10 +750,6 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 				currentState, readErr := bb.Read()
 				if readErr == nil {
 					currentFindingCount := len(currentState.AuditFindings)
-					if auditorPrevFindingCount < 0 {
-						// First run: initialize baseline
-						auditorPrevFindingCount = currentFindingCount
-					}
 					if currentFindingCount > auditorPrevFindingCount {
 						// Progress made — reset tracker
 						auditorStaleRuns = 0
