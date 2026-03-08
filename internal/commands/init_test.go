@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +89,7 @@ func TestInitCommand(t *testing.T) {
 				// Point HOME to an empty dir so global check fails
 				emptyHome := t.TempDir()
 				t.Setenv("HOME", emptyHome)
+				t.Setenv("USERPROFILE", emptyHome) // Windows uses USERPROFILE
 			}
 
 			// Change to temp directory
@@ -528,7 +530,7 @@ func TestInitCommand_WritesClaudeSettings(t *testing.T) {
 	}
 
 	// Verify file permissions
-	if info.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0644 {
 		t.Errorf("settings.json has wrong permissions: got %o, want 0644", info.Mode().Perm())
 	}
 

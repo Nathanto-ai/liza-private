@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -296,7 +297,7 @@ func TestWriteGlobalFiles(t *testing.T) {
 		}
 
 		// Verify file permissions
-		if info.Mode().Perm() != 0644 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0644 {
 			t.Errorf("File %s has wrong permissions: got %o, want 0644", file, info.Mode().Perm())
 		}
 	}
@@ -705,7 +706,7 @@ func TestWriteClaudeSettings_NewFile(t *testing.T) {
 	}
 
 	// Verify file permissions
-	if info.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0644 {
 		t.Errorf("File has wrong permissions: got %o, want 0644", info.Mode().Perm())
 	}
 

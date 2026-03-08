@@ -239,9 +239,9 @@ func TestPlannerWakeTriggerSpecs(t *testing.T) {
 		WakeTriggerIntegrationFailed,
 		WakeTriggerHypothesisExhausted,
 		WakeTriggerImmediateDiscovery,
-		WakeTriggerSprintComplete,
 		WakeTriggerReplanRequired,
 		WakeTriggerRemediationNeeded,
+		WakeTriggerSprintComplete,
 	}
 
 	if len(plannerWakeTriggerSpecs) != len(wantOrder) {

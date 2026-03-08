@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -747,6 +748,9 @@ func TestMergeWorktree_TestsRanInHistory(t *testing.T) {
 }
 
 func TestMergeWorktree_NonNotExistStatErrorNotMisclassified(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows returns ErrNotExist (not ENOTDIR) when a path component is a regular file")
+	}
 	taskID := "merge-script-stat-error"
 	agentID := "coder-1"
 	tmpDir, stateFile := setupMergeTestRepo(t, taskID, agentID)

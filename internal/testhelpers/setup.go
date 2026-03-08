@@ -110,6 +110,8 @@ func SetupGlobalLiza(t *testing.T) string {
 	t.Helper()
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
+	// On Windows, os.UserHomeDir() uses USERPROFILE, not HOME.
+	t.Setenv("USERPROFILE", fakeHome)
 	globalLiza := filepath.Join(fakeHome, ".liza")
 	if err := os.MkdirAll(globalLiza, 0755); err != nil {
 		t.Fatal(err)

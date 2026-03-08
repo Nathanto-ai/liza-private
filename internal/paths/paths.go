@@ -177,7 +177,7 @@ func GetProjectRoot() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("not a git repository or git command failed: %w", err)
 	}
-	toplevel := strings.TrimSpace(string(toplevelOut))
+	toplevel := filepath.FromSlash(strings.TrimSpace(string(toplevelOut)))
 
 	// Get the common git directory
 	commonDirCmd := exec.Command("git", "rev-parse", "--git-common-dir")

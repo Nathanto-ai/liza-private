@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/liza-mas/liza/internal/db"
@@ -25,6 +27,24 @@ const maxMergeRetries = 3
 // in each CAS attempt and before merge/ref-update logic runs.
 // Production code leaves this nil.
 var mergeCASRetryTestHook func(attempt int, integrationRef, preMergeHEAD string) error
+
+// makeShellCmd creates an exec.Cmd that can run a shell script on any platform.
+// On Windows, it wraps the script with sh/bash from Git for Windows.
+func makeShellCmd(scriptPath string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		// Try to find sh.exe (bundled with Git for Windows)
+		sh, err := exec.LookPath("sh")
+		if err != nil {
+			sh, err = exec.LookPath("bash")
+		}
+		if err == nil {
+			// Convert Windows path to forward-slash for sh
+			return exec.Command(sh, strings.ReplaceAll(scriptPath, "\\", "/"))
+		}
+		// Fallback: try running directly (will likely fail but gives clear error)
+	}
+	return exec.Command(scriptPath)
+}
 
 // Integration failure reason constants.
 const (
@@ -275,7 +295,7 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 	if _, statErr := os.Stat(integrationTestScript); statErr == nil {
 		testsRan = true
 		var combinedOutput bytes.Buffer
-		cmd := exec.Command(integrationTestScript)
+		cmd := makeShellCmd(integrationTestScript)
 		cmd.Dir = projectRoot
 		cmd.Stdout = &combinedOutput
 		cmd.Stderr = &combinedOutput

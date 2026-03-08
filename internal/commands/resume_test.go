@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -124,6 +125,9 @@ func TestResumeCommand(t *testing.T) {
 // TestResumeCommand_ArchiveWriteFailure verifies that when the archive file
 // cannot be written, resume fails and state remains unchanged (no data loss).
 func TestResumeCommand_ArchiveWriteFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix directory permission bits via os.Chmod")
+	}
 	tmpDir := t.TempDir()
 	stateFile, _ := testhelpers.SetupLizaDir(t, tmpDir)
 

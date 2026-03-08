@@ -2,8 +2,6 @@ package ops
 
 import (
 	"fmt"
-	"os"
-	"syscall"
 	"time"
 
 	"github.com/liza-mas/liza/internal/db"
@@ -15,21 +13,6 @@ import (
 // DeleteAgentResult contains the outcome of deleting an agent.
 type DeleteAgentResult struct {
 	AgentID string
-}
-
-// IsProcessAlive checks if a process with the given PID is running.
-func IsProcessAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-
-	err = process.Signal(syscall.Signal(0))
-	return err == nil
 }
 
 // DeleteAgent removes an agent from state. Without force, refuses if the agent

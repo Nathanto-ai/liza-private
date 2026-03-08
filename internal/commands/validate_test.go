@@ -269,6 +269,8 @@ func TestValidateCommand_Dependencies(t *testing.T) {
 						Created:      time.Now().UTC(),
 						SpecRef:      "specs/test.md",
 						DoneWhen:     "Complete",
+						AcceptanceCriteria: []string{"Tests pass"},
+						VerifyCommands: []string{"go test ./..."},
 						History:      []models.TaskHistoryEntry{},
 					},
 				}
@@ -444,6 +446,8 @@ func TestValidateCommand_DuplicateAssignments(t *testing.T) {
 						Created:      time.Now().UTC(),
 						SpecRef:      "specs/test.md",
 						DoneWhen:     "Complete",
+						AcceptanceCriteria: []string{"Tests pass"},
+						VerifyCommands: []string{"go test ./..."},
 						History:      []models.TaskHistoryEntry{},
 					},
 					{
@@ -457,6 +461,8 @@ func TestValidateCommand_DuplicateAssignments(t *testing.T) {
 						Created:      time.Now().UTC(),
 						SpecRef:      "specs/test.md",
 						DoneWhen:     "Complete",
+						AcceptanceCriteria: []string{"Tests pass"},
+						VerifyCommands: []string{"go test ./..."},
 						History:      []models.TaskHistoryEntry{},
 					},
 				}
@@ -495,6 +501,8 @@ func TestValidateCommand_DuplicateAssignments(t *testing.T) {
 						Created:      time.Now().UTC(),
 						SpecRef:      "specs/test.md",
 						DoneWhen:     "Complete",
+						AcceptanceCriteria: []string{"Tests pass"},
+						VerifyCommands: []string{"go test ./..."},
 						History:      []models.TaskHistoryEntry{},
 					},
 				}

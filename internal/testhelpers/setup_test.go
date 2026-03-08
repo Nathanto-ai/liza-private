@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -132,9 +133,9 @@ func TestCreateTestWorktree(t *testing.T) {
 		t.Error("Worktree path is not a directory")
 	}
 
-	// Verify permissions (0755)
+	// Verify permissions (0755) — Windows reports 0777
 	mode := info.Mode().Perm()
-	if mode != 0755 {
+	if runtime.GOOS != "windows" && mode != 0755 {
 		t.Errorf("Expected permissions 0755, got %o", mode)
 	}
 }
