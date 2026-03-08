@@ -275,6 +275,64 @@ This pattern prevents TOCTOU races in multi-agent scenarios.`,
 	},
 }
 
+var writeCheckpointCmd = &cobra.Command{
+	Use:   "write-checkpoint <task-id>",
+	Short: "Write pre-execution checkpoint for a task",
+	Long: `Write a pre-execution checkpoint to a task's history.
+
+This must be done before submitting a task for review (submit-for-review).
+The checkpoint documents the coder's intent and validation plan.
+
+Requirements:
+  - Agent ID must be provided (via --agent-id flag or LIZA_AGENT_ID env var)
+  - Task must be in IMPLEMENTING status
+  - Task must be assigned to the agent`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		taskID := args[0]
+
+		agentID, err := requireAgentID(cmd)
+		if err != nil {
+			return err
+		}
+
+		projectRoot, err := requireProjectRoot()
+		if err != nil {
+			return err
+		}
+
+		intent, _ := cmd.Flags().GetString("intent")
+		validationPlan, _ := cmd.Flags().GetString("validation-plan")
+		filesStr, _ := cmd.Flags().GetString("files")
+
+		if intent == "" {
+			return fmt.Errorf("--intent is required")
+		}
+		if validationPlan == "" {
+			return fmt.Errorf("--validation-plan is required")
+		}
+		if filesStr == "" {
+			return fmt.Errorf("--files is required (comma-separated file list)")
+		}
+
+		input := &ops.WriteCheckpointInput{
+			TaskID:         taskID,
+			AgentID:        agentID,
+			Intent:         intent,
+			ValidationPlan: validationPlan,
+			FilesToModify:  strings.Split(filesStr, ","),
+		}
+
+		if err := ops.WriteCheckpoint(projectRoot, input); err != nil {
+			return fmt.Errorf("write checkpoint: %w", err)
+		}
+
+		fmt.Printf("CHECKPOINT WRITTEN: %s\n", taskID)
+		fmt.Printf("  agent: %s\n", agentID)
+		return nil
+	},
+}
+
 var submitForReviewCmd = &cobra.Command{
 	Use:   "submit-for-review <task-id> <commit-sha>",
 	Short: "Submit a task for review",
@@ -1150,6 +1208,30 @@ Example YAML file format:
 		if cmd.Flags().Changed("type") {
 			input.Type, _ = cmd.Flags().GetString("type")
 		}
+		if cmd.Flags().Changed("acceptance-criteria") {
+			acStr, _ := cmd.Flags().GetString("acceptance-criteria")
+			if acStr != "" {
+				input.AcceptanceCriteria = strings.Split(acStr, ",")
+			}
+		}
+		if cmd.Flags().Changed("verify-commands") {
+			vcStr, _ := cmd.Flags().GetString("verify-commands")
+			if vcStr != "" {
+				input.VerifyCommands = strings.Split(vcStr, ",")
+			}
+		}
+		if cmd.Flags().Changed("requirement-refs") {
+			rrStr, _ := cmd.Flags().GetString("requirement-refs")
+			if rrStr != "" {
+				input.RequirementRefs = strings.Split(rrStr, ",")
+			}
+		}
+		if cmd.Flags().Changed("error-behavior") {
+			input.ErrorBehavior, _ = cmd.Flags().GetString("error-behavior")
+		}
+		if cmd.Flags().Changed("origin-finding-id") {
+			input.OriginFindingID, _ = cmd.Flags().GetString("origin-finding-id")
+		}
 
 		if input.Priority == 0 {
 			input.Priority = 1
@@ -1358,6 +1440,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(claimTaskCmd)
 	rootCmd.AddCommand(submitForReviewCmd)
+	rootCmd.AddCommand(writeCheckpointCmd)
 	rootCmd.AddCommand(handoffCmd)
 	rootCmd.AddCommand(submitVerdictCmd)
 	rootCmd.AddCommand(submitAuditFindingCmd)
@@ -1426,10 +1509,20 @@ func init() {
 	addTaskCmd.Flags().Int("priority", 0, "task priority (default: 1, overrides file value)")
 	addTaskCmd.Flags().String("depends", "", "comma-separated list of task IDs this task depends on (overrides file value)")
 	addTaskCmd.Flags().String("type", "", "task type determining role workflow (default: coding)")
+	addTaskCmd.Flags().String("acceptance-criteria", "", "comma-separated acceptance criteria")
+	addTaskCmd.Flags().String("verify-commands", "", "comma-separated verification commands")
+	addTaskCmd.Flags().String("requirement-refs", "", "comma-separated requirement references (R1,R2,...)")
+	addTaskCmd.Flags().String("error-behavior", "", "expected error handling behavior")
+	addTaskCmd.Flags().String("origin-finding-id", "", "audit finding ID that originated this task")
 	addTaskCmd.Flags().String("state", "", "path to state.yaml (default: .liza/state.yaml)")
 	addTaskCmd.Flags().String("log", "", "path to log.yaml (default: .liza/log.yaml)")
 
 	// Note: Required flags are validated in RunE based on whether --file is provided
+
+	// Write-checkpoint command flags
+	writeCheckpointCmd.Flags().String("intent", "", "description of what the coder intends to implement (required)")
+	writeCheckpointCmd.Flags().String("validation-plan", "", "how the coder plans to validate the work (required)")
+	writeCheckpointCmd.Flags().String("files", "", "comma-separated list of files to modify (required)")
 
 	// Wt-create command flags
 	wtCreateCmd.Flags().Bool("fresh", false, "delete existing worktree before creating (for task reassignment)")

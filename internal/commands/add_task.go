@@ -11,14 +11,19 @@ import (
 // TaskInput represents the input parameters for adding a task.
 // Can be loaded from a YAML file or constructed from CLI flags.
 type TaskInput struct {
-	ID          string   `yaml:"id"`
-	Type        string   `yaml:"type,omitempty"`
-	Description string   `yaml:"description"`
-	SpecRef     string   `yaml:"spec_ref"`
-	DoneWhen    string   `yaml:"done_when"`
-	Scope       string   `yaml:"scope"`
-	Priority    int      `yaml:"priority"`
-	DependsOn   []string `yaml:"depends_on,omitempty"`
+	ID                 string   `yaml:"id"`
+	Type               string   `yaml:"type,omitempty"`
+	Description        string   `yaml:"description"`
+	SpecRef            string   `yaml:"spec_ref"`
+	DoneWhen           string   `yaml:"done_when"`
+	Scope              string   `yaml:"scope"`
+	Priority           int      `yaml:"priority"`
+	DependsOn          []string `yaml:"depends_on,omitempty"`
+	AcceptanceCriteria []string `yaml:"acceptance_criteria,omitempty"`
+	VerifyCommands     []string `yaml:"verify_commands,omitempty"`
+	RequirementRefs    []string `yaml:"requirement_refs,omitempty"`
+	ErrorBehavior      string   `yaml:"error_behavior,omitempty"`
+	OriginFindingID    string   `yaml:"origin_finding_id,omitempty"`
 }
 
 // LoadTaskInputFromFile loads task input from a YAML file.
@@ -40,14 +45,19 @@ func LoadTaskInputFromFile(path string) (*TaskInput, error) {
 // Delegates business logic (including post-write validation) to ops.AddTask.
 func AddTaskCommand(statePath, logPath string, input *TaskInput, plannerID string) error {
 	opsInput := &ops.AddTaskInput{
-		ID:          input.ID,
-		Type:        input.Type,
-		Description: input.Description,
-		SpecRef:     input.SpecRef,
-		DoneWhen:    input.DoneWhen,
-		Scope:       input.Scope,
-		Priority:    input.Priority,
-		DependsOn:   input.DependsOn,
+		ID:                 input.ID,
+		Type:               input.Type,
+		Description:        input.Description,
+		SpecRef:            input.SpecRef,
+		DoneWhen:           input.DoneWhen,
+		Scope:              input.Scope,
+		Priority:           input.Priority,
+		DependsOn:          input.DependsOn,
+		AcceptanceCriteria: input.AcceptanceCriteria,
+		VerifyCommands:     input.VerifyCommands,
+		RequirementRefs:    input.RequirementRefs,
+		ErrorBehavior:      input.ErrorBehavior,
+		OriginFindingID:    input.OriginFindingID,
 	}
 
 	result, err := ops.AddTask(statePath, logPath, opsInput, plannerID)
