@@ -158,49 +158,49 @@ func (t *Task) Transition(to TaskStatus) error {
 
 // Task represents a single task in the Liza system
 type Task struct {
-	ID                  string             `yaml:"id"`
-	Type                TaskType           `yaml:"type,omitempty"`
-	Description         string             `yaml:"description"`
-	Status              TaskStatus         `yaml:"status"`
-	Priority            int                `yaml:"priority"`
-	AssignedTo          *string            `yaml:"assigned_to,omitempty"`
-	Worktree            *string            `yaml:"worktree,omitempty"`
-	BaseCommit          *string            `yaml:"base_commit,omitempty"`
-	Iteration           int                `yaml:"iteration,omitempty"`
-	Exit42RestartCount  int                `yaml:"exit42_restart_count,omitempty"`
-	ReviewCyclesCurrent int                `yaml:"review_cycles_current,omitempty"`
-	ReviewCyclesTotal   int                `yaml:"review_cycles_total,omitempty"`
-	ReviewCommit        *string            `yaml:"review_commit,omitempty"`
-	ReviewingBy         *string            `yaml:"reviewing_by,omitempty"`
-	ReviewLeaseExpires  *time.Time         `yaml:"review_lease_expires,omitempty"`
-	ApprovedBy          *string            `yaml:"approved_by,omitempty"`
-	MergeCommit         *string            `yaml:"merge_commit,omitempty"`
-	LeaseExpires        *time.Time         `yaml:"lease_expires,omitempty"`
-	SpecRef             string             `yaml:"spec_ref"`
-	DoneWhen            string             `yaml:"done_when"`
-	Scope               string             `yaml:"scope"`
-	RejectionReason     *string            `yaml:"rejection_reason,omitempty"`
-	BlockedReason       *string            `yaml:"blocked_reason,omitempty"`
-	BlockedQuestions    []string           `yaml:"blocked_questions,omitempty"`
-	Attempted           []string           `yaml:"attempted,omitempty"`
-	SupersededBy        []string           `yaml:"superseded_by,omitempty"`
-	Supersedes          *string            `yaml:"supersedes,omitempty"`
-	RescopeReason       *string            `yaml:"rescope_reason,omitempty"`
-	FailedBy            []string           `yaml:"failed_by,omitempty"`
-	DependsOn           []string           `yaml:"depends_on,omitempty"`
-	IntegrationFix      bool               `yaml:"integration_fix,omitempty"`
-	HandoffPending      bool               `yaml:"handoff_pending,omitempty"`
-	MaxIterations       int                `yaml:"max_iterations,omitempty"`
-	RequirementRefs     []string           `yaml:"requirement_refs,omitempty"`
-	AcceptanceCriteria  []string           `yaml:"acceptance_criteria,omitempty"`
-	VerifyCommands      []string              `yaml:"verify_commands,omitempty"`
-	ErrorBehavior       string                `yaml:"error_behavior,omitempty"`
-	VerificationResult  *VerificationResult   `yaml:"verification_result,omitempty"`
-	OriginTaskID        string                `yaml:"origin_task_id,omitempty"`
-	OriginFindingID     string                `yaml:"origin_finding_id,omitempty"`
-	Created             time.Time             `yaml:"created"`
-	History             []TaskHistoryEntry    `yaml:"history"`
-	Extra               map[string]any        `yaml:",inline"`
+	ID                  string              `yaml:"id"`
+	Type                TaskType            `yaml:"type,omitempty"`
+	Description         string              `yaml:"description"`
+	Status              TaskStatus          `yaml:"status"`
+	Priority            int                 `yaml:"priority"`
+	AssignedTo          *string             `yaml:"assigned_to,omitempty"`
+	Worktree            *string             `yaml:"worktree,omitempty"`
+	BaseCommit          *string             `yaml:"base_commit,omitempty"`
+	Iteration           int                 `yaml:"iteration,omitempty"`
+	Exit42RestartCount  int                 `yaml:"exit42_restart_count,omitempty"`
+	ReviewCyclesCurrent int                 `yaml:"review_cycles_current,omitempty"`
+	ReviewCyclesTotal   int                 `yaml:"review_cycles_total,omitempty"`
+	ReviewCommit        *string             `yaml:"review_commit,omitempty"`
+	ReviewingBy         *string             `yaml:"reviewing_by,omitempty"`
+	ReviewLeaseExpires  *time.Time          `yaml:"review_lease_expires,omitempty"`
+	ApprovedBy          *string             `yaml:"approved_by,omitempty"`
+	MergeCommit         *string             `yaml:"merge_commit,omitempty"`
+	LeaseExpires        *time.Time          `yaml:"lease_expires,omitempty"`
+	SpecRef             string              `yaml:"spec_ref"`
+	DoneWhen            string              `yaml:"done_when"`
+	Scope               string              `yaml:"scope"`
+	RejectionReason     *string             `yaml:"rejection_reason,omitempty"`
+	BlockedReason       *string             `yaml:"blocked_reason,omitempty"`
+	BlockedQuestions    []string            `yaml:"blocked_questions,omitempty"`
+	Attempted           []string            `yaml:"attempted,omitempty"`
+	SupersededBy        []string            `yaml:"superseded_by,omitempty"`
+	Supersedes          *string             `yaml:"supersedes,omitempty"`
+	RescopeReason       *string             `yaml:"rescope_reason,omitempty"`
+	FailedBy            []string            `yaml:"failed_by,omitempty"`
+	DependsOn           []string            `yaml:"depends_on,omitempty"`
+	IntegrationFix      bool                `yaml:"integration_fix,omitempty"`
+	HandoffPending      bool                `yaml:"handoff_pending,omitempty"`
+	MaxIterations       int                 `yaml:"max_iterations,omitempty"`
+	RequirementRefs     []string            `yaml:"requirement_refs,omitempty"`
+	AcceptanceCriteria  []string            `yaml:"acceptance_criteria,omitempty"`
+	VerifyCommands      []string            `yaml:"verify_commands,omitempty"`
+	ErrorBehavior       string              `yaml:"error_behavior,omitempty"`
+	VerificationResult  *VerificationResult `yaml:"verification_result,omitempty"`
+	OriginTaskID        string              `yaml:"origin_task_id,omitempty"`
+	OriginFindingID     string              `yaml:"origin_finding_id,omitempty"`
+	Created             time.Time           `yaml:"created"`
+	History             []TaskHistoryEntry  `yaml:"history"`
+	Extra               map[string]any      `yaml:",inline"`
 }
 
 // EffectiveType returns the task's type, defaulting to TaskTypeCoding when empty (backward compat).
@@ -551,9 +551,9 @@ type VerificationResult struct {
 type AuditFinding struct {
 	ID                string         `yaml:"id"`
 	TaskID            string         `yaml:"task_id"`
-	Severity          string         `yaml:"severity"`          // HIGH, MEDIUM, LOW
-	Type              string         `yaml:"type"`              // SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, QUALITY_ISSUE
-	Phase             string         `yaml:"phase,omitempty"`   // pre_execution, post_execution, post_merge
+	Severity          string         `yaml:"severity"`                 // HIGH, MEDIUM, LOW
+	Type              string         `yaml:"type"`                     // SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, QUALITY_ISSUE
+	Phase             string         `yaml:"phase,omitempty"`          // pre_execution, post_execution, post_merge
 	Classification    string         `yaml:"classification,omitempty"` // LOG_ONLY, REMEDIATE_WITH_TASK, REOPEN_TASK, REPLAN_REQUIRED
 	SpecReference     string         `yaml:"spec_reference,omitempty"`
 	Evidence          string         `yaml:"evidence"`
@@ -766,26 +766,26 @@ type Config struct {
 	// PlannerMaxWait is the maximum time a planner agent will wait for work
 	// before exiting. When 0, defaults to DefaultPlannerMaxWait (30 minutes).
 	// The planner will exit earlier if STOPPED mode is detected or context is cancelled.
-	PlannerMaxWait          int            `yaml:"planner_max_wait"`
-	ReviewerPollInterval    int            `yaml:"reviewer_poll_interval"`
-	ReviewerMaxWait         int            `yaml:"reviewer_max_wait"`
-	AuditorPollInterval     int            `yaml:"auditor_poll_interval"`
-	AuditorMaxWait          int            `yaml:"auditor_max_wait"`
-	Exit42RestartThreshold  int            `yaml:"exit42_restart_threshold,omitempty"`
-	Exit42MaxBackoffSeconds int            `yaml:"exit42_max_backoff_seconds,omitempty"`
-	CrashRetryLimit         int            `yaml:"crash_retry_limit,omitempty"`
-	CrashRetryBaseDelaySec  int            `yaml:"crash_retry_base_delay_seconds,omitempty"`
-	CrashRetryMaxDelaySec   int            `yaml:"crash_retry_max_delay_seconds,omitempty"`
-	IntegrationBranch       string         `yaml:"integration_branch"`
-	EscalationWebhook       *string        `yaml:"escalation_webhook,omitempty"`
-	Mode                    SystemMode     `yaml:"mode,omitempty"`
-	ModeChangedAt           *time.Time     `yaml:"mode_changed_at,omitempty"`
-	ModeChangedBy           *string        `yaml:"mode_changed_by,omitempty"`
-	DiagnosticLogging       bool           `yaml:"diagnostic_logging,omitempty"`
-	MaxTasksPerRun          int            `yaml:"max_tasks_per_run,omitempty"`
-	MaxTasksGenerated       int            `yaml:"max_tasks_generated,omitempty"`
-	MaxAgentIterations      int            `yaml:"max_agent_iterations,omitempty"`
-	MaxRuntimeMinutes       int            `yaml:"max_runtime_minutes,omitempty"`
+	PlannerMaxWait             int            `yaml:"planner_max_wait"`
+	ReviewerPollInterval       int            `yaml:"reviewer_poll_interval"`
+	ReviewerMaxWait            int            `yaml:"reviewer_max_wait"`
+	AuditorPollInterval        int            `yaml:"auditor_poll_interval"`
+	AuditorMaxWait             int            `yaml:"auditor_max_wait"`
+	Exit42RestartThreshold     int            `yaml:"exit42_restart_threshold,omitempty"`
+	Exit42MaxBackoffSeconds    int            `yaml:"exit42_max_backoff_seconds,omitempty"`
+	CrashRetryLimit            int            `yaml:"crash_retry_limit,omitempty"`
+	CrashRetryBaseDelaySec     int            `yaml:"crash_retry_base_delay_seconds,omitempty"`
+	CrashRetryMaxDelaySec      int            `yaml:"crash_retry_max_delay_seconds,omitempty"`
+	IntegrationBranch          string         `yaml:"integration_branch"`
+	EscalationWebhook          *string        `yaml:"escalation_webhook,omitempty"`
+	Mode                       SystemMode     `yaml:"mode,omitempty"`
+	ModeChangedAt              *time.Time     `yaml:"mode_changed_at,omitempty"`
+	ModeChangedBy              *string        `yaml:"mode_changed_by,omitempty"`
+	DiagnosticLogging          bool           `yaml:"diagnostic_logging,omitempty"`
+	MaxTasksPerRun             int            `yaml:"max_tasks_per_run,omitempty"`
+	MaxTasksGenerated          int            `yaml:"max_tasks_generated,omitempty"`
+	MaxAgentIterations         int            `yaml:"max_agent_iterations,omitempty"`
+	MaxRuntimeMinutes          int            `yaml:"max_runtime_minutes,omitempty"`
 	EnforceRequirementRefs     bool           `yaml:"enforce_requirement_refs,omitempty"`
 	EnforceDeduplication       bool           `yaml:"enforce_deduplication,omitempty"`
 	RequireAuditForSprintClose bool           `yaml:"require_audit_for_sprint_close,omitempty"`
