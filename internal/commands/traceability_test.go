@@ -299,6 +299,67 @@ func TestInspectTraceability_MultipleRequirements(t *testing.T) {
 	}
 }
 
+func TestInspectTraceability_AcceptanceCriteriaChain(t *testing.T) {
+	t.Parallel()
+	state := testhelpers.CreateValidState()
+	state.Tasks = []models.Task{
+		{
+			ID:                 "task-1",
+			Description:        "Implement R1",
+			Status:             models.TaskStatusMerged,
+			RequirementRefs:    []string{"R1"},
+			AcceptanceCriteria: []string{"AC-1: search returns results", "AC-2: pagination works"},
+			VerifyCommands:     []string{"go test ./..."},
+			Priority:           1,
+			Scope:              "search",
+			SpecRef:            "specs/delivery.md",
+			DoneWhen:           "all tests pass",
+		},
+		{
+			ID:                 "task-2",
+			Description:        "Implement R1 edge cases",
+			Status:             models.TaskStatusReady,
+			RequirementRefs:    []string{"R1"},
+			AcceptanceCriteria: []string{"AC-2: pagination works", "AC-3: empty results handled"},
+			VerifyCommands:     []string{"go test ./search/..."},
+			Priority:           2,
+			Scope:              "search",
+			SpecRef:            "specs/delivery.md",
+			DoneWhen:           "edge case tests pass",
+		},
+	}
+
+	out, err := inspectTraceability(state, "json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var matrix TraceabilityMatrix
+	if err := json.Unmarshal([]byte(out), &matrix); err != nil {
+		t.Fatalf("failed to parse JSON: %v\noutput: %s", err, out)
+	}
+
+	if len(matrix.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(matrix.Entries))
+	}
+
+	entry := matrix.Entries[0]
+
+	// acceptance_criteria should be deduplicated (AC-2 appears in both tasks)
+	if len(entry.AcceptanceCriteria) != 3 {
+		t.Errorf("expected 3 unique ACs, got %d: %v", len(entry.AcceptanceCriteria), entry.AcceptanceCriteria)
+	}
+
+	// Table format should show the column header
+	tableOut, err := inspectTraceability(state, "table")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(tableOut, "ACCEPTANCE CRITERIA") {
+		t.Errorf("expected ACCEPTANCE CRITERIA header in table, got:\n%s", tableOut)
+	}
+}
+
 func TestComputeCoverage(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

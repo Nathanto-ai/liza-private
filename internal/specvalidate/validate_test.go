@@ -235,6 +235,308 @@ None.
 			wantMissing: []string{"Problem Statement"},
 		},
 		{
+			name: "delivery spec with requirement IDs",
+			content: `# Delivery Spec
+
+## Definitions / Glossary
+Terms.
+
+## Requirements
+- R1: Must do X
+- R2: Must do Y
+
+## User Stories
+Stories.
+
+## Acceptance Criteria
+
+### AC-1 (R1): Feature X
+Given: x
+When: y
+Then: z
+
+## Data & Interfaces
+Interfaces.
+
+## Constraints
+Constraints.
+
+## Verification Plan
+` + "```bash\ngo test ./...\n```" + `
+
+## Non Goals
+None.
+
+## Open Questions
+- None at this time
+`,
+			specType:  SpecTypeDelivery,
+			wantValid: true,
+		},
+		{
+			name: "delivery spec requirement section without IDs warns",
+			content: `# Delivery Spec
+
+## Definitions / Glossary
+Terms.
+
+## Requirements
+The system must be fast and reliable.
+
+## User Stories
+Stories.
+
+## Acceptance Criteria
+Given: x
+When: y
+Then: z
+
+## Data & Interfaces
+Interfaces.
+
+## Constraints
+Constraints.
+
+## Verification Plan
+` + "```bash\ngo test ./...\n```" + `
+
+## Non Goals
+None.
+
+## Open Questions
+None.
+`,
+			specType:     SpecTypeDelivery,
+			wantValid:    true,
+			wantWarnings: []string{"Requirements section has no requirement IDs (expected R1, R2, ...)"},
+		},
+		{
+			name: "delivery spec AC IDs without requirement linkage warns",
+			content: `# Delivery Spec
+
+## Definitions / Glossary
+Terms.
+
+## Requirements
+- R1: Feature X
+
+## User Stories
+Stories.
+
+## Acceptance Criteria
+AC-1: Feature X
+Given: x
+When: y
+Then: z
+
+## Data & Interfaces
+Interfaces.
+
+## Constraints
+Constraints.
+
+## Verification Plan
+` + "```bash\ngo test ./...\n```" + `
+
+## Non Goals
+None.
+
+## Open Questions
+None.
+`,
+			specType:     SpecTypeDelivery,
+			wantValid:    true,
+			wantWarnings: []string{"Acceptance Criteria has AC IDs but no requirement linkage (expected AC-1 (R1) format)"},
+		},
+		{
+			name: "delivery spec verification plan without commands warns",
+			content: `# Delivery Spec
+
+## Definitions / Glossary
+Terms.
+
+## Requirements
+- R1: Feature
+
+## User Stories
+Stories.
+
+## Acceptance Criteria
+
+### AC-1 (R1): Feature
+Given: x
+When: y
+Then: z
+
+## Data & Interfaces
+Interfaces.
+
+## Constraints
+Constraints.
+
+## Verification Plan
+Run the tests and check the output manually.
+
+## Non Goals
+None.
+
+## Open Questions
+None.
+`,
+			specType:     SpecTypeDelivery,
+			wantValid:    true,
+			wantWarnings: []string{"Verification Plan has no executable commands or code blocks (expected verify_commands)"},
+		},
+		{
+			name: "delivery spec verification plan with go test accepted",
+			content: `# Delivery Spec
+
+## Definitions / Glossary
+Terms.
+
+## Requirements
+- R1: Feature
+
+## User Stories
+Stories.
+
+## Acceptance Criteria
+
+### AC-1 (R1): Feature
+Given: x
+When: y
+Then: z
+
+## Data & Interfaces
+Interfaces.
+
+## Constraints
+Constraints.
+
+## Verification Plan
+go test ./internal/foo/...
+
+## Non Goals
+None.
+
+## Open Questions
+None.
+`,
+			specType:  SpecTypeDelivery,
+			wantValid: true,
+		},
+		{
+			name: "delivery spec open questions with blocking item warns",
+			content: `# Delivery Spec
+
+## Definitions / Glossary
+Terms.
+
+## Requirements
+- R1: Feature
+
+## User Stories
+Stories.
+
+## Acceptance Criteria
+
+### AC-1 (R1): Feature
+Given: x
+When: y
+Then: z
+
+## Data & Interfaces
+Interfaces.
+
+## Constraints
+Constraints.
+
+## Verification Plan
+` + "```bash\ngo test ./...\n```" + `
+
+## Non Goals
+None.
+
+## Open Questions
+- This question is a BLOCKER for implementation
+`,
+			specType:     SpecTypeDelivery,
+			wantValid:    true,
+			wantWarnings: []string{"Open Questions section may contain blocking items — resolve before IMPLEMENTING"},
+		},
+		{
+			name: "delivery spec open questions none is safe",
+			content: `# Delivery Spec
+
+## Definitions / Glossary
+Terms.
+
+## Requirements
+- R1: Feature
+
+## User Stories
+Stories.
+
+## Acceptance Criteria
+
+### AC-1 (R1): Feature
+Given: x
+When: y
+Then: z
+
+## Data & Interfaces
+Interfaces.
+
+## Constraints
+Constraints.
+
+## Verification Plan
+` + "```bash\ngo test ./...\n```" + `
+
+## Non Goals
+None.
+
+## Open Questions
+None blocking.
+`,
+			specType:  SpecTypeDelivery,
+			wantValid: true,
+		},
+		{
+			name: "no requirements section warns",
+			content: `# Delivery Spec
+
+## Definitions / Glossary
+Terms.
+
+## User Stories
+Stories.
+
+## Acceptance Criteria
+Given: x
+When: y
+Then: z
+
+## Data & Interfaces
+Interfaces.
+
+## Constraints
+Constraints.
+
+## Verification Plan
+` + "```bash\ngo test ./...\n```" + `
+
+## Non Goals
+None.
+
+## Open Questions
+None.
+`,
+			specType:     SpecTypeDelivery,
+			wantValid:    true,
+			wantWarnings: []string{"no Requirements section found (recommended for traceability)"},
+		},
+		{
 			name: "delivery spec multiple sections missing",
 			content: `# Delivery Spec
 

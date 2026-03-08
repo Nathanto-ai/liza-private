@@ -243,6 +243,8 @@ func validateSprintVV(state *models.State) []string {
 		}
 		if task.VerificationResult == nil {
 			issues = append(issues, fmt.Sprintf("task %s: missing verification result", task.ID))
+		} else if !task.VerificationResult.Passed {
+			issues = append(issues, fmt.Sprintf("task %s: verification result recorded but not passed", task.ID))
 		}
 		if !postMergeAudited[task.ID] {
 			issues = append(issues, fmt.Sprintf("task %s: missing post-merge audit", task.ID))

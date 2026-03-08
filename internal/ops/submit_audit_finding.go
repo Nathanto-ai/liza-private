@@ -74,7 +74,7 @@ func SubmitAuditFinding(projectRoot string, input AuditFindingInput) (*AuditFind
 		return nil, fmt.Errorf("invalid severity %q (must be HIGH, MEDIUM, or LOW)", input.Severity)
 	}
 	if !finding.IsValidType() {
-		return nil, fmt.Errorf("invalid type %q (must be SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, or QUALITY_ISSUE)", input.Type)
+		return nil, fmt.Errorf("invalid type %q", input.Type)
 	}
 	if !finding.IsValidPhase() {
 		return nil, fmt.Errorf("invalid phase %q (must be pre_execution, post_execution, or post_merge)", input.Phase)
@@ -99,8 +99,14 @@ func SubmitAuditFinding(projectRoot string, input AuditFindingInput) (*AuditFind
 			}
 		}
 
+		// Apply deterministic supervisor classification policy.
+		// The auditor's classification is treated as a suggestion; the
+		// control-plane makes the final decision based on severity, type, and context.
+		repeats := countUnresolvedFindingsForTask(state.AuditFindings, input.TaskID)
+		finding.Classification = ClassifyFinding(finding, task.Status, repeats)
+
 		// Handle REOPEN_TASK classification: transition MERGED → READY
-		if input.Classification == "REOPEN_TASK" && task.Status == models.TaskStatusMerged {
+		if finding.Classification == "REOPEN_TASK" && task.Status == models.TaskStatusMerged {
 			if !task.Status.CanTransition(models.TaskStatusReady) {
 				return fmt.Errorf("cannot reopen task %q: MERGED → READY transition not allowed", input.TaskID)
 			}
@@ -120,7 +126,7 @@ func SubmitAuditFinding(projectRoot string, input AuditFindingInput) (*AuditFind
 		FindingID:      input.FindingID,
 		TaskID:         input.TaskID,
 		Severity:       input.Severity,
-		Classification: input.Classification,
+		Classification: finding.Classification, // deterministic, may differ from input
 		TaskReopened:   taskReopened,
 	}, nil
 }

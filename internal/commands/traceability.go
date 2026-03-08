@@ -10,11 +10,12 @@ import (
 
 // TraceabilityEntry represents one row in the traceability matrix.
 type TraceabilityEntry struct {
-	Requirement string   `json:"requirement" yaml:"requirement"`
-	Tasks       []string `json:"tasks" yaml:"tasks"`
-	Statuses    []string `json:"statuses" yaml:"statuses"`
-	VerifyCmds  []string `json:"verify_commands" yaml:"verify_commands"`
-	Coverage    string   `json:"coverage" yaml:"coverage"` // FULL, PARTIAL, NONE
+	Requirement        string   `json:"requirement" yaml:"requirement"`
+	Tasks              []string `json:"tasks" yaml:"tasks"`
+	Statuses           []string `json:"statuses" yaml:"statuses"`
+	AcceptanceCriteria []string `json:"acceptance_criteria" yaml:"acceptance_criteria"`
+	VerifyCmds         []string `json:"verify_commands" yaml:"verify_commands"`
+	Coverage           string   `json:"coverage" yaml:"coverage"` // FULL, PARTIAL, NONE
 }
 
 // TraceabilityMatrix is the full traceability output.
@@ -31,6 +32,7 @@ func inspectTraceability(state *models.State, format string) (string, error) {
 	// Build requirement → tasks mapping
 	reqTasks := make(map[string][]string)
 	reqStatuses := make(map[string][]string)
+	reqAC := make(map[string][]string)
 	reqVerifyCmds := make(map[string][]string)
 	taskHasReqs := make(map[string]bool)
 
@@ -47,6 +49,9 @@ func inspectTraceability(state *models.State, format string) (string, error) {
 			ref = strings.TrimSpace(ref)
 			reqTasks[ref] = append(reqTasks[ref], task.ID)
 			reqStatuses[ref] = append(reqStatuses[ref], string(task.Status))
+			for _, ac := range task.AcceptanceCriteria {
+				reqAC[ref] = appendUnique(reqAC[ref], ac)
+			}
 			for _, cmd := range task.VerifyCommands {
 				reqVerifyCmds[ref] = appendUnique(reqVerifyCmds[ref], cmd)
 			}
@@ -64,11 +69,12 @@ func inspectTraceability(state *models.State, format string) (string, error) {
 	for _, req := range reqs {
 		coverage := computeCoverage(reqStatuses[req])
 		entries = append(entries, TraceabilityEntry{
-			Requirement: req,
-			Tasks:       reqTasks[req],
-			Statuses:    reqStatuses[req],
-			VerifyCmds:  reqVerifyCmds[req],
-			Coverage:    coverage,
+			Requirement:        req,
+			Tasks:              reqTasks[req],
+			Statuses:           reqStatuses[req],
+			AcceptanceCriteria: reqAC[req],
+			VerifyCmds:         reqVerifyCmds[req],
+			Coverage:           coverage,
 		})
 	}
 
@@ -109,16 +115,17 @@ func formatTraceabilityTable(m TraceabilityMatrix) string {
 	if len(m.Entries) == 0 {
 		sb.WriteString("No tasks with requirement_refs found.\n")
 	} else {
-		sb.WriteString(fmt.Sprintf("%-12s %-30s %-20s %-10s %s\n",
-			"REQUIREMENT", "TASKS", "STATUSES", "COVERAGE", "VERIFY COMMANDS"))
-		sb.WriteString(strings.Repeat("-", 100) + "\n")
+		sb.WriteString(fmt.Sprintf("%-12s %-25s %-15s %-10s %-30s %s\n",
+			"REQUIREMENT", "TASKS", "STATUSES", "COVERAGE", "ACCEPTANCE CRITERIA", "VERIFY COMMANDS"))
+		sb.WriteString(strings.Repeat("-", 130) + "\n")
 
 		for _, e := range m.Entries {
 			tasks := strings.Join(e.Tasks, ", ")
 			statuses := strings.Join(e.Statuses, ", ")
+			ac := strings.Join(e.AcceptanceCriteria, "; ")
 			cmds := strings.Join(e.VerifyCmds, "; ")
-			sb.WriteString(fmt.Sprintf("%-12s %-30s %-20s %-10s %s\n",
-				e.Requirement, truncateStr(tasks, 28), truncateStr(statuses, 18), e.Coverage, truncateStr(cmds, 40)))
+			sb.WriteString(fmt.Sprintf("%-12s %-25s %-15s %-10s %-30s %s\n",
+				e.Requirement, truncateStr(tasks, 23), truncateStr(statuses, 13), e.Coverage, truncateStr(ac, 28), truncateStr(cmds, 40)))
 		}
 	}
 

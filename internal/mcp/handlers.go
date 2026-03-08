@@ -744,10 +744,8 @@ func (s *Server) handleSubmitAuditFinding(params map[string]any) (any, error) {
 		return nil, err
 	}
 
-	classification, err := requireString(params, "classification")
-	if err != nil {
-		return nil, err
-	}
+	// Classification is optional — supervisor assigns it deterministically
+	classification, _ := params["classification"].(string)
 
 	result, err := ops.SubmitAuditFinding(s.projectRoot, ops.AuditFindingInput{
 		FindingID:         findingID,

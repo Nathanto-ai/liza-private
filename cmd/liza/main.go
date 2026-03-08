@@ -459,17 +459,18 @@ var submitAuditFindingCmd = &cobra.Command{
 
 Used by auditor agents to record spec mismatches, missing tests,
 quality issues, and other observations discovered during code audit.
+Classification is assigned by the deterministic supervisor policy.
 
 Required flags:
   --finding-id       Unique ID for this finding
   --task-id          The task this finding applies to
   --severity         HIGH, MEDIUM, or LOW
-  --type             SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, or QUALITY_ISSUE
+  --type             Finding type (SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, QUALITY_ISSUE, CAPABILITY_MISSING, VERIFICATION_GAP, ARCHITECTURE_DEBT, SYSTEMIC_SPEC_DRIFT)
   --phase            pre_execution, post_execution, or post_merge
-  --classification   LOG_ONLY, REMEDIATE_WITH_TASK, REOPEN_TASK, or REPLAN_REQUIRED
   --evidence         Description of what was found
 
 Optional flags:
+  --classification       Suggested classification (supervisor assigns final)
   --recommended-action   Suggested remediation
   --spec-reference       Reference to relevant spec section`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -506,9 +507,9 @@ func init() {
 	submitAuditFindingCmd.Flags().String("finding-id", "", "unique finding ID (required)")
 	submitAuditFindingCmd.Flags().String("task-id", "", "task ID this finding applies to (required)")
 	submitAuditFindingCmd.Flags().String("severity", "", "HIGH, MEDIUM, or LOW (required)")
-	submitAuditFindingCmd.Flags().String("type", "", "SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, or QUALITY_ISSUE (required)")
+	submitAuditFindingCmd.Flags().String("type", "", "SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, QUALITY_ISSUE, CAPABILITY_MISSING, VERIFICATION_GAP, ARCHITECTURE_DEBT, or SYSTEMIC_SPEC_DRIFT (required)")
 	submitAuditFindingCmd.Flags().String("phase", "", "pre_execution, post_execution, or post_merge (required)")
-	submitAuditFindingCmd.Flags().String("classification", "", "LOG_ONLY, REMEDIATE_WITH_TASK, REOPEN_TASK, or REPLAN_REQUIRED (required)")
+	submitAuditFindingCmd.Flags().String("classification", "", "Suggested classification (optional — supervisor assigns final classification)")
 	submitAuditFindingCmd.Flags().String("evidence", "", "description of what was found (required)")
 	submitAuditFindingCmd.Flags().String("recommended-action", "", "suggested remediation (optional)")
 	submitAuditFindingCmd.Flags().String("spec-reference", "", "reference to relevant spec section (optional)")
@@ -517,7 +518,7 @@ func init() {
 	_ = submitAuditFindingCmd.MarkFlagRequired("severity")
 	_ = submitAuditFindingCmd.MarkFlagRequired("type")
 	_ = submitAuditFindingCmd.MarkFlagRequired("phase")
-	_ = submitAuditFindingCmd.MarkFlagRequired("classification")
+	// classification is now optional — the deterministic supervisor policy assigns it
 	_ = submitAuditFindingCmd.MarkFlagRequired("evidence")
 }
 

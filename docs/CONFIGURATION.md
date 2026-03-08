@@ -125,6 +125,7 @@ These limits are not configurable via state.yaml:
 | Auditor stale-run limit | 3 | Consecutive runs without findings before auditor exits |
 | Anomaly: stagnation threshold | 3 | Consecutive same-task failures before HIGH alert |
 | Anomaly: no-diff retry threshold | 3 | Consecutive no-code-change iterations before MEDIUM alert |
+| Anomaly: no-diff escalation threshold | 6 | Consecutive no-diff iterations before MEDIUM→HIGH escalation |
 | File lock timeout | 10s | Max wait to acquire state.yaml lock |
 | MCP max request size | 10 MB | Max JSON-RPC request payload |
 
@@ -136,10 +137,29 @@ Tasks transitioning to IMPLEMENTING must include:
 |-------|----------|---------|
 | `acceptance_criteria` | Yes (non-empty) | What "done" looks like |
 | `verify_commands` | Yes (non-empty) | Deterministic verification commands |
+| `requirement_refs` | Conditional | Required when `enforce_requirement_refs: true` |
 | `spec_ref` | Yes (existing) | Traceability to specification |
 | `done_when` | Yes (existing) | Human-readable completion criteria |
 
 Tasks with `origin_finding_id` trace back to an audit finding. Tasks with `origin_task_id` trace to the original task the finding was raised against.
+
+### Verification Results
+
+When tasks are merged, verification results are stored with per-command detail:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `passed` | bool | Overall pass/fail |
+| `output` | string | Combined command output |
+| `timestamp` | time | When verification ran |
+| `phase` | string | `pre-merge`, `post-merge` |
+| `commands` | list | Per-command results (command, exit_code, output, duration, error) |
+
+Sprint close V&V requires `verification_result.passed == true` (not just non-nil) for MERGED tasks.
+
+### Traceability Matrix
+
+The `liza inspect traceability` command shows the full chain: requirement → task → acceptance criteria → verify_commands → coverage status. Orphan tasks (with no `requirement_refs`) are listed separately.
 
 ### Audit Findings
 
@@ -148,10 +168,16 @@ Auditor agents produce structured findings stored in `state.yaml` under `audit_f
 | Field | Required | Values |
 |-------|----------|--------|
 | `severity` | Yes | `LOW`, `MEDIUM`, `HIGH` |
-| `type` | Yes | `SPEC_MISMATCH`, `MISSING_TEST`, `QUALITY_ISSUE`, `SECURITY_CONCERN` |
+| `type` | Yes | `SPEC_MISMATCH`, `MISSING_TEST`, `MISSING_EDGE_CASE`, `QUALITY_ISSUE`, `CAPABILITY_MISSING`, `VERIFICATION_GAP`, `ARCHITECTURE_DEBT`, `SYSTEMIC_SPEC_DRIFT` |
+| `classification` | No (auto-assigned) | `LOG_ONLY`, `REMEDIATE_WITH_TASK`, `REOPEN_TASK`, `REPLAN_REQUIRED` |
+| `phase` | Yes | `pre_execution`, `post_execution`, `post_merge` |
 | `spec_reference` | Yes | Which AC or spec section |
 | `evidence` | Yes | What the auditor observed |
 | `recommended_action` | Yes | What should be done |
+
+**Classification is deterministic**: The supervisor control-plane assigns classification based on finding severity, type, task status, and repeat-finding count. Auditor-suggested classification is recorded but overridden by policy. See `internal/ops/classify_finding.go` for the decision table.
+
+**Finding clustering**: When multiple findings target the same spec and task, the planner clusters them into a single consolidated remediation task instead of creating one task per finding. See `internal/planner/task_policy.go` `ClusterProposals()`.
 
 Findings are **advisory** — they cannot set PASS/FAIL or bypass deterministic verification.
 

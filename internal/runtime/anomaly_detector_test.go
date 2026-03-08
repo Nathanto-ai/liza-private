@@ -210,3 +210,133 @@ func TestAnomalyDetector_CombinedDetection(t *testing.T) {
 		t.Error("expected NO_DIFF_RETRY anomaly")
 	}
 }
+
+func TestAnomalyDetector_NoDiffEscalation(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	tests := []struct {
+		name         string
+		records      []IterationRecord
+		wantSeverity string
+	}{
+		{
+			name: "3 no-diffs MEDIUM not escalated",
+			records: func() []IterationRecord {
+				var recs []IterationRecord
+				for i := 0; i < 3; i++ {
+					recs = append(recs, IterationRecord{TaskID: "t-1", HasDiff: false, Timestamp: now})
+				}
+				return recs
+			}(),
+			wantSeverity: "MEDIUM",
+		},
+		{
+			name: "5 no-diffs still MEDIUM",
+			records: func() []IterationRecord {
+				var recs []IterationRecord
+				for i := 0; i < 5; i++ {
+					recs = append(recs, IterationRecord{TaskID: "t-1", HasDiff: false, Timestamp: now})
+				}
+				return recs
+			}(),
+			wantSeverity: "MEDIUM",
+		},
+		{
+			name: "6 no-diffs escalated to HIGH",
+			records: func() []IterationRecord {
+				var recs []IterationRecord
+				for i := 0; i < 6; i++ {
+					recs = append(recs, IterationRecord{TaskID: "t-1", HasDiff: false, Timestamp: now})
+				}
+				return recs
+			}(),
+			wantSeverity: "HIGH",
+		},
+		{
+			name: "7 no-diffs still HIGH",
+			records: func() []IterationRecord {
+				var recs []IterationRecord
+				for i := 0; i < 7; i++ {
+					recs = append(recs, IterationRecord{TaskID: "t-1", HasDiff: false, Timestamp: now})
+				}
+				return recs
+			}(),
+			wantSeverity: "HIGH",
+		},
+		{
+			name: "diff at position 2 resets escalation",
+			records: func() []IterationRecord {
+				recs := make([]IterationRecord, 7)
+				for i := range recs {
+					recs[i] = IterationRecord{TaskID: "t-1", HasDiff: false, Timestamp: now}
+				}
+				recs[1].HasDiff = true // early diff breaks escalation window
+				return recs
+			}(),
+			wantSeverity: "MEDIUM",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ad := NewAnomalyDetector() // threshold=3, escalation=6
+
+			anomalies := ad.Detect(tt.records)
+
+			var noDiff []Anomaly
+			for _, a := range anomalies {
+				if a.Type == AnomalyNoDiffRetry {
+					noDiff = append(noDiff, a)
+				}
+			}
+
+			if len(noDiff) != 1 {
+				t.Fatalf("expected 1 no-diff anomaly, got %d", len(noDiff))
+			}
+			if noDiff[0].Severity != tt.wantSeverity {
+				t.Errorf("severity = %q, want %q", noDiff[0].Severity, tt.wantSeverity)
+			}
+		})
+	}
+}
+
+func TestCountConsecutiveNoDiff(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	tests := []struct {
+		name    string
+		records []IterationRecord
+		want    int
+	}{
+		{"empty", nil, 0},
+		{"all no-diff", []IterationRecord{
+			{HasDiff: false, Timestamp: now},
+			{HasDiff: false, Timestamp: now},
+			{HasDiff: false, Timestamp: now},
+		}, 3},
+		{"trailing no-diff after diff", []IterationRecord{
+			{HasDiff: true, Timestamp: now},
+			{HasDiff: false, Timestamp: now},
+			{HasDiff: false, Timestamp: now},
+		}, 2},
+		{"ends with diff", []IterationRecord{
+			{HasDiff: false, Timestamp: now},
+			{HasDiff: true, Timestamp: now},
+		}, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := countConsecutiveNoDiff(tt.records); got != tt.want {
+				t.Errorf("countConsecutiveNoDiff() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

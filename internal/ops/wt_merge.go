@@ -116,6 +116,35 @@ func appendUniqueAgentID(failedBy []string, agentID string) []string {
 	return append(failedBy, agentID)
 }
 
+// toVerificationResult converts a verify.Result (from the shared verification
+// executor) into a models.VerificationResult with structured per-command data.
+func toVerificationResult(vr *verify.Result, phase string) *models.VerificationResult {
+	result := &models.VerificationResult{
+		Passed:    vr.Passed,
+		Timestamp: time.Now().UTC(),
+		Phase:     phase,
+	}
+
+	var outputBuf strings.Builder
+	for _, cr := range vr.Results {
+		result.Commands = append(result.Commands, models.VerificationCmdResult{
+			Command:  cr.Command,
+			ExitCode: cr.ExitCode,
+			Output:   cr.Output,
+			Duration: cr.Duration,
+			Error:    cr.Error,
+		})
+		if cr.ExitCode == 0 {
+			fmt.Fprintf(&outputBuf, "\n[PASS] %s\n", cr.Command)
+		} else {
+			fmt.Fprintf(&outputBuf, "\n[FAIL] %s: exit code %d\n%s\n", cr.Command, cr.ExitCode, cr.Output)
+		}
+	}
+	result.Output = outputBuf.String()
+
+	return result
+}
+
 // markIntegrationFailed transitions a task to INTEGRATION_FAILED under lock.
 // Re-validates the task is still APPROVED to prevent concurrent transitions.
 // If mergeCommit is non-empty, it's recorded on both the task and the history entry.
@@ -384,31 +413,12 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 			_ = rmCmd.Run()
 		}()
 
-		var verifyBuf bytes.Buffer
-		verifyPassed := true
-		for _, vcmd := range task.VerifyCommands {
-			// Sanitize command (agents often double-escape quotes in MCP calls)
-			vcmd = verify.SanitizeCommand(vcmd)
-			log.Printf("wt-merge %s: running verify command: %s", taskID, vcmd)
-			// Use platform-appropriate shell (sh on Unix, cmd on Windows)
-			cmd, cmdCleanup := verify.ShellCommand(context.Background(), vcmd, verifyDir)
-			cmd.Stdout = &verifyBuf
-			cmd.Stderr = &verifyBuf
-			runErr := cmd.Run()
-			cmdCleanup()
-			if runErr != nil {
-				verifyBuf.WriteString(fmt.Sprintf("\n[FAIL] %s: %v\n", vcmd, runErr))
-				verifyPassed = false
-				break
-			}
-			verifyBuf.WriteString(fmt.Sprintf("\n[PASS] %s\n", vcmd))
-		}
-		verifyResult = &models.VerificationResult{
-			Passed:    verifyPassed,
-			Output:    verifyBuf.String(),
-			Timestamp: time.Now().UTC(),
-		}
-		if !verifyPassed {
+		// Use the shared verification executor (same path as post-submission verify)
+		cfg := verify.DefaultConfig()
+		vResult := verify.RunVerification(context.Background(), task.VerifyCommands, verifyDir, cfg)
+		verifyResult = toVerificationResult(vResult, "merge")
+
+		if !verifyResult.Passed {
 			// Rollback merge if verification fails
 			if err := gitWrapper.UpdateRef(integrationRef, preMergeHEAD, mergeCommit); err != nil {
 				var casErr *git.RefConflictError

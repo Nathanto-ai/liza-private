@@ -223,6 +223,44 @@ func TestValidateSprintVV(t *testing.T) {
 			t.Errorf("expected no issues for resolved findings, got: %v", issues)
 		}
 	})
+
+	t.Run("MERGED task with failed VerificationResult → verification not passed issue", func(t *testing.T) {
+		state := testhelpers.CreateValidState()
+		task := testhelpers.BuildTaskByStatus("task-1", models.TaskStatusMerged, now)
+		task.VerificationResult = &models.VerificationResult{
+			Passed:    false,
+			Output:    "FAIL: test_something",
+			Timestamp: now,
+		}
+		state.Tasks = []models.Task{task}
+		state.AuditFindings = []models.AuditFinding{
+			{
+				ID:             "f-1",
+				TaskID:         "task-1",
+				Severity:       "LOW",
+				Type:           "QUALITY_ISSUE",
+				Phase:          "post_merge",
+				Classification: "LOG_ONLY",
+				Evidence:       "checked",
+				Created:        now,
+			},
+		}
+
+		issues := validateSprintVV(state)
+		if len(issues) == 0 {
+			t.Fatal("expected issues for failed verification, got none")
+		}
+		found := false
+		for _, issue := range issues {
+			if strings.Contains(issue, "task-1") && strings.Contains(issue, "not passed") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected issue about failed verification for task-1, got: %v", issues)
+		}
+	})
 }
 
 func TestJoinIssues(t *testing.T) {

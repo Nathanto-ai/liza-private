@@ -322,3 +322,105 @@ func TestSeverityToPriority(t *testing.T) {
 		})
 	}
 }
+
+func TestClusterProposals(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		proposals []TaskProposal
+		wantCount int
+		check     func(t *testing.T, result []TaskProposal)
+	}{
+		{
+			name:      "empty input returns empty",
+			proposals: []TaskProposal{},
+			wantCount: 0,
+		},
+		{
+			name: "single proposal passes through",
+			proposals: []TaskProposal{
+				{FindingID: "f-1", TaskID: "fix-f-1", SpecRef: "AC-1", OriginTaskID: "t-1", Priority: 2, Description: "Fix A"},
+			},
+			wantCount: 1,
+			check: func(t *testing.T, result []TaskProposal) {
+				if result[0].FindingID != "f-1" {
+					t.Errorf("expected f-1, got %s", result[0].FindingID)
+				}
+				if result[0].TaskID != "fix-f-1" {
+					t.Errorf("expected original TaskID, got %s", result[0].TaskID)
+				}
+			},
+		},
+		{
+			name: "two proposals same spec+task clustered",
+			proposals: []TaskProposal{
+				{FindingID: "f-1", TaskID: "fix-f-1", SpecRef: "AC-1", OriginTaskID: "t-1", Priority: 2, Description: "Fix A", Scope: "scope-a", DoneWhen: "done-a"},
+				{FindingID: "f-2", TaskID: "fix-f-2", SpecRef: "AC-1", OriginTaskID: "t-1", Priority: 1, Description: "Fix B", Scope: "scope-b", DoneWhen: "done-b"},
+			},
+			wantCount: 1,
+			check: func(t *testing.T, result []TaskProposal) {
+				if result[0].Priority != 1 {
+					t.Errorf("expected highest priority 1, got %d", result[0].Priority)
+				}
+				if result[0].FindingID != "f-1" {
+					t.Errorf("expected primary finding f-1, got %s", result[0].FindingID)
+				}
+				if result[0].SpecRef != "AC-1" {
+					t.Errorf("expected SpecRef AC-1, got %s", result[0].SpecRef)
+				}
+			},
+		},
+		{
+			name: "different specs not clustered",
+			proposals: []TaskProposal{
+				{FindingID: "f-1", TaskID: "fix-f-1", SpecRef: "AC-1", OriginTaskID: "t-1", Priority: 2, Description: "Fix A"},
+				{FindingID: "f-2", TaskID: "fix-f-2", SpecRef: "AC-2", OriginTaskID: "t-1", Priority: 1, Description: "Fix B"},
+			},
+			wantCount: 2,
+		},
+		{
+			name: "different origin tasks not clustered",
+			proposals: []TaskProposal{
+				{FindingID: "f-1", TaskID: "fix-f-1", SpecRef: "AC-1", OriginTaskID: "t-1", Priority: 2, Description: "Fix A"},
+				{FindingID: "f-2", TaskID: "fix-f-2", SpecRef: "AC-1", OriginTaskID: "t-2", Priority: 1, Description: "Fix B"},
+			},
+			wantCount: 2,
+		},
+		{
+			name: "mixed cluster and singles",
+			proposals: []TaskProposal{
+				{FindingID: "f-1", SpecRef: "AC-1", OriginTaskID: "t-1", Priority: 2, Description: "Fix A"},
+				{FindingID: "f-2", SpecRef: "AC-1", OriginTaskID: "t-1", Priority: 1, Description: "Fix B"},
+				{FindingID: "f-3", SpecRef: "AC-2", OriginTaskID: "t-1", Priority: 3, Description: "Fix C"},
+			},
+			wantCount: 2,
+			check: func(t *testing.T, result []TaskProposal) {
+				// First result should be the cluster (AC-1, t-1)
+				if result[0].Priority != 1 {
+					t.Errorf("cluster priority = %d, want 1", result[0].Priority)
+				}
+				// Second result should be the single (AC-2, t-1)
+				if result[1].FindingID != "f-3" {
+					t.Errorf("single finding = %s, want f-3", result[1].FindingID)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := ClusterProposals(tt.proposals)
+
+			if len(result) != tt.wantCount {
+				t.Fatalf("result count = %d, want %d; result: %+v", len(result), tt.wantCount, result)
+			}
+
+			if tt.check != nil {
+				tt.check(t, result)
+			}
+		})
+	}
+}

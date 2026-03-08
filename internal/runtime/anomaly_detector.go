@@ -38,13 +38,17 @@ type AnomalyDetector struct {
 	// NoDiffThreshold is the number of consecutive no-diff iterations
 	// before flagging. Default: 3.
 	NoDiffThreshold int
+	// NoDiffEscalationThreshold is the number of consecutive no-diff iterations
+	// before escalating from MEDIUM to HIGH. Default: 2x NoDiffThreshold.
+	NoDiffEscalationThreshold int
 }
 
 // NewAnomalyDetector creates a detector with default thresholds.
 func NewAnomalyDetector() *AnomalyDetector {
 	return &AnomalyDetector{
-		StagnationThreshold: 3,
-		NoDiffThreshold:     3,
+		StagnationThreshold:       3,
+		NoDiffThreshold:           3,
+		NoDiffEscalationThreshold: 6,
 	}
 }
 
@@ -115,13 +119,46 @@ func (ad *AnomalyDetector) detectNoDiffRetries(records []IterationRecord) []Anom
 	}
 
 	if allNoDiff {
+		// Check for escalation: if the pattern persists beyond the escalation threshold,
+		// escalate from MEDIUM to HIGH to trigger supervisor shutdown.
+		severity := "MEDIUM"
+		escalation := ad.NoDiffEscalationThreshold
+		if escalation <= 0 {
+			escalation = threshold * 2
+		}
+		if len(records) >= escalation {
+			escalationTail := records[len(records)-escalation:]
+			allEscalated := true
+			for _, r := range escalationTail {
+				if r.HasDiff {
+					allEscalated = false
+					break
+				}
+			}
+			if allEscalated {
+				severity = "HIGH"
+			}
+		}
+
 		return []Anomaly{{
 			Type:        AnomalyNoDiffRetry,
-			Description: fmt.Sprintf("%d consecutive iterations produced no diff", threshold),
-			Severity:    "MEDIUM",
+			Description: fmt.Sprintf("%d consecutive iterations produced no diff", countConsecutiveNoDiff(records)),
+			Severity:    severity,
 			Detected:    time.Now().UTC(),
 		}}
 	}
 
 	return nil
+}
+
+// countConsecutiveNoDiff counts how many trailing records have HasDiff=false.
+func countConsecutiveNoDiff(records []IterationRecord) int {
+	count := 0
+	for i := len(records) - 1; i >= 0; i-- {
+		if records[i].HasDiff {
+			break
+		}
+		count++
+	}
+	return count
 }

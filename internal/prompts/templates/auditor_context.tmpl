@@ -42,10 +42,11 @@ AUDITOR RESPONSIBILITIES:
 AUDIT FINDING TOOL:
 If you have MCP tools available, use:
 - liza_submit_audit_finding — Record an audit finding
-  Format: {"task_id": "<task>", "finding_id": "<unique-id>", "severity": "HIGH|MEDIUM|LOW", "type": "SPEC_MISMATCH|MISSING_TEST|MISSING_EDGE_CASE|QUALITY_ISSUE", "phase": "post_merge", "classification": "LOG_ONLY|REMEDIATE_WITH_TASK|REOPEN_TASK|REPLAN_REQUIRED", "evidence": "<what you found>", "recommended_action": "<what should be done>"}
+  Format: {"task_id": "<task>", "finding_id": "<unique-id>", "severity": "HIGH|MEDIUM|LOW", "type": "SPEC_MISMATCH|MISSING_TEST|MISSING_EDGE_CASE|QUALITY_ISSUE|CAPABILITY_MISSING|VERIFICATION_GAP|ARCHITECTURE_DEBT|SYSTEMIC_SPEC_DRIFT", "phase": "post_merge", "evidence": "<what you found>", "recommended_action": "<what should be done>"}
+  Note: classification is optional — the supervisor assigns it deterministically based on severity, type, and context.
 
 If you have shell/terminal access instead, use:
-- liza submit-audit-finding --finding-id <id> --task-id <task> --severity HIGH|MEDIUM|LOW --type SPEC_MISMATCH|MISSING_TEST|MISSING_EDGE_CASE|QUALITY_ISSUE --phase post_merge --classification LOG_ONLY|REMEDIATE_WITH_TASK|REOPEN_TASK|REPLAN_REQUIRED --evidence "<what you found>" --recommended-action "<what should be done>"
+- liza submit-audit-finding --finding-id <id> --task-id <task> --severity HIGH|MEDIUM|LOW --type SPEC_MISMATCH|MISSING_TEST|MISSING_EDGE_CASE|QUALITY_ISSUE|CAPABILITY_MISSING|VERIFICATION_GAP|ARCHITECTURE_DEBT|SYSTEMIC_SPEC_DRIFT --phase post_merge --evidence "<what you found>" --recommended-action "<what should be done>"
 
 YOU MUST submit findings using one of the above tools. Simply describing findings in your output is NOT sufficient — the system only tracks findings that are submitted via the tool.
 

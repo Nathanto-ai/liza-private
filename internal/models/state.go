@@ -541,9 +541,20 @@ type SpecChange struct {
 
 // VerificationResult records the outcome of running verify_commands during merge.
 type VerificationResult struct {
-	Passed    bool      `yaml:"passed"`
-	Output    string    `yaml:"output,omitempty"`
-	Timestamp time.Time `yaml:"timestamp"`
+	Passed    bool                    `yaml:"passed"`
+	Output    string                  `yaml:"output,omitempty"`
+	Timestamp time.Time               `yaml:"timestamp"`
+	Commands  []VerificationCmdResult `yaml:"commands,omitempty"`
+	Phase     string                  `yaml:"phase,omitempty"` // e.g. "merge", "post_submission"
+}
+
+// VerificationCmdResult records the outcome of a single verification command.
+type VerificationCmdResult struct {
+	Command  string        `yaml:"command"`
+	ExitCode int           `yaml:"exit_code"`
+	Output   string        `yaml:"output,omitempty"`
+	Duration time.Duration `yaml:"duration"`
+	Error    string        `yaml:"error,omitempty"`
 }
 
 // AuditFinding represents a structured finding from the auditor agent.
@@ -571,7 +582,10 @@ func (f *AuditFinding) IsValidSeverity() bool {
 
 // IsValidType checks if the audit finding type is valid.
 func (f *AuditFinding) IsValidType() bool {
-	validTypes := []string{"SPEC_MISMATCH", "MISSING_TEST", "MISSING_EDGE_CASE", "QUALITY_ISSUE"}
+	validTypes := []string{
+		"SPEC_MISMATCH", "MISSING_TEST", "MISSING_EDGE_CASE", "QUALITY_ISSUE",
+		"CAPABILITY_MISSING", "VERIFICATION_GAP", "ARCHITECTURE_DEBT", "SYSTEMIC_SPEC_DRIFT",
+	}
 	return slices.Contains(validTypes, f.Type)
 }
 

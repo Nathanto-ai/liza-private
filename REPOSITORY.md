@@ -9,12 +9,12 @@ This document is a navigation aid: where to find things and why they're organize
 ```
 ├── cmd/                    # Go CLI entry points (liza, liza-mcp)
 ├── internal/               # Go internal packages (implementation)
-│   ├── specvalidate/       #   Spec validation (delivery/vision templates)
+│   ├── specvalidate/       #   Spec validation (delivery/vision templates, requirement/AC/verification checks)
 │   ├── statevalidate/      #   State validators (incl. task quality gate)
 │   ├── verify/             #   Deterministic verification executor
 │   ├── auditor/            #   Auditor work selection & findings
-│   ├── planner/            #   Task creation policy, dedup, budget
-│   ├── runtime/            #   Budget tracking & anomaly detection
+│   ├── planner/            #   Task creation policy, dedup, budget, finding clustering
+│   ├── runtime/            #   Budget tracking & anomaly detection (with MEDIUM→HIGH escalation)
 │   ├── observability/      #   Structured event logging (JSONL)
 │   └── ...                 #   (db, commands, models, mcp, git, agent, etc.)
 ├── contracts/              # Behavioral contracts governing agents

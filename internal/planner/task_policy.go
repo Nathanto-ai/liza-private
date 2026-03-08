@@ -82,6 +82,63 @@ func EvaluateFinding(finding models.AuditFinding) *TaskProposal {
 	}
 }
 
+// ClusterProposals groups proposals that share the same (SpecRef, OriginTaskID)
+// into a single consolidated proposal, reducing remediation task sprawl.
+// Clusters of size 1 pass through unchanged.
+func ClusterProposals(proposals []TaskProposal) []TaskProposal {
+	type clusterKey struct {
+		SpecRef      string
+		OriginTaskID string
+	}
+
+	groups := make(map[clusterKey][]TaskProposal)
+	var order []clusterKey // preserve first-seen order
+
+	for _, p := range proposals {
+		key := clusterKey{SpecRef: p.SpecRef, OriginTaskID: p.OriginTaskID}
+		if _, exists := groups[key]; !exists {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], p)
+	}
+
+	var result []TaskProposal
+	for _, key := range order {
+		group := groups[key]
+		if len(group) == 1 {
+			result = append(result, group[0])
+			continue
+		}
+
+		// Merge cluster: use highest priority, combine descriptions/scopes
+		merged := TaskProposal{
+			FindingID:    group[0].FindingID, // primary finding
+			TaskID:       fmt.Sprintf("fix-cluster-%s", group[0].FindingID),
+			SpecRef:      key.SpecRef,
+			OriginTaskID: key.OriginTaskID,
+			Priority:     group[0].Priority,
+		}
+
+		var descs, scopes, doneWhens, findingIDs []string
+		for _, p := range group {
+			descs = append(descs, p.Description)
+			scopes = append(scopes, p.Scope)
+			doneWhens = append(doneWhens, p.DoneWhen)
+			findingIDs = append(findingIDs, p.FindingID)
+			if p.Priority < merged.Priority {
+				merged.Priority = p.Priority
+			}
+		}
+
+		merged.Description = fmt.Sprintf("Fix %d findings on %s: %s", len(group), key.SpecRef, strings.Join(descs, "; "))
+		merged.Scope = strings.Join(scopes, "; ")
+		merged.DoneWhen = fmt.Sprintf("All findings resolved: %s", strings.Join(findingIDs, ", "))
+		result = append(result, merged)
+	}
+
+	return result
+}
+
 // DeduplicateTasks removes proposals that duplicate existing non-complete tasks
 // with matching description or spec_ref and origin_finding_id.
 func DeduplicateTasks(proposals []TaskProposal, existingTasks []models.Task) []TaskProposal {
