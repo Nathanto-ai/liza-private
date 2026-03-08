@@ -6,8 +6,10 @@ package verify
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -80,6 +82,31 @@ func SanitizeCommand(cmdStr string) string {
 	return strings.ReplaceAll(cmdStr, `\"`, `"`)
 }
 
+// racePattern matches the -race flag in go test commands (standalone flag, not part of another word).
+var racePattern = regexp.MustCompile(`(^|\s)-race(\s|$)`)
+
+// stripRaceFlagIfNeeded removes -race from go test commands on Windows when
+// cgo is not available. The -race detector requires cgo, which is not present
+// in standard Windows Go installations without a C compiler.
+func stripRaceFlagIfNeeded(cmdStr string) string {
+	if runtime.GOOS != "windows" {
+		return cmdStr
+	}
+	if !strings.Contains(cmdStr, "go test") || !strings.Contains(cmdStr, "-race") {
+		return cmdStr
+	}
+	// Check if CGO_ENABLED is explicitly set in environment
+	if cgo := os.Getenv("CGO_ENABLED"); cgo == "1" {
+		return cmdStr
+	}
+	cleaned := racePattern.ReplaceAllString(cmdStr, "$1$2")
+	cleaned = strings.Join(strings.Fields(cleaned), " ") // normalize whitespace
+	if cleaned != cmdStr {
+		log.Printf("verify: stripped -race flag from command on Windows (cgo unavailable): %s", cleaned)
+	}
+	return cleaned
+}
+
 // ShellCommand returns an exec.Cmd that runs cmdStr through the
 // platform-appropriate shell (sh -c on Unix, cmd /C on Windows).
 //
@@ -120,6 +147,9 @@ func runCommand(ctx context.Context, cmdStr, workdir string, cfg Config) Command
 
 	// Sanitize command to handle agent double-escaping
 	cmdStr = SanitizeCommand(cmdStr)
+
+	// Strip -race flag on Windows when cgo is not available
+	cmdStr = stripRaceFlagIfNeeded(cmdStr)
 
 	var cmdCtx context.Context
 	var cancel context.CancelFunc

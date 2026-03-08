@@ -314,3 +314,65 @@ func TestShellCommandQuotedArgsWindows(t *testing.T) {
 		t.Errorf("expected output to contain 'hello world', got: %q", output)
 	}
 }
+
+// TestStripRaceFlagIfNeeded is a regression test for the -race flag issue on Windows.
+// Standard Windows Go installations lack cgo, so -race fails. The verify executor
+// should auto-strip -race on Windows when CGO_ENABLED is not explicitly set.
+func TestStripRaceFlagIfNeeded(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		input string
+		want string // expected on Windows; on non-Windows, input is returned unchanged
+	}{
+		{
+			name:  "go test -race stripped",
+			input: "go test -race ./...",
+			want:  "go test ./...",
+		},
+		{
+			name:  "go test -race -v stripped",
+			input: "go test -race -v -count=1 ./...",
+			want:  "go test -v -count=1 ./...",
+		},
+		{
+			name:  "no race flag unchanged",
+			input: "go test ./...",
+			want:  "go test ./...",
+		},
+		{
+			name:  "non-go command unchanged",
+			input: "python test.py -race",
+			want:  "python test.py -race",
+		},
+		{
+			name:  "race as part of another word unchanged",
+			input: "go test -racecar ./...",
+			want:  "go test -racecar ./...",
+		},
+		{
+			name:  "empty command",
+			input: "",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := stripRaceFlagIfNeeded(tt.input)
+
+			if runtime.GOOS == "windows" {
+				if got != tt.want {
+					t.Errorf("stripRaceFlagIfNeeded(%q) = %q, want %q", tt.input, got, tt.want)
+				}
+			} else {
+				// On non-Windows, the function should be a no-op
+				if got != tt.input {
+					t.Errorf("stripRaceFlagIfNeeded(%q) = %q, want %q (no-op on non-Windows)", tt.input, got, tt.input)
+				}
+			}
+		})
+	}
+}

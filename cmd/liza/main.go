@@ -125,13 +125,16 @@ Explicit Out of Scope, Success Criteria, Risks and Assumptions.
 
 Delivery specs must contain: Definitions / Glossary, User Stories,
 Acceptance Criteria (with Given/When/Then), Data & Interfaces, Constraints,
-Verification Plan, Non Goals, Open Questions.`,
+Verification Plan, Non Goals, Open Questions.
+
+When --type is not specified, the type is auto-detected from the filename:
+  *vision* → vision, *delivery* → delivery. Falls back to delivery if unclear.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		specPath := args[0]
 		specType, _ := cmd.Flags().GetString("type")
 		if specType == "" {
-			specType = "delivery"
+			specType = inferSpecType(specPath)
 		}
 		err := commands.ValidateSpecCommand(specPath, specType)
 		if err != nil {
@@ -272,6 +275,26 @@ This pattern prevents TOCTOU races in multi-agent scenarios.`,
 		}
 
 		return commands.ClaimTaskCommand(projectRoot, taskID, agentID)
+	},
+}
+
+var claimReviewCmd = &cobra.Command{
+	Use:   "claim-review <agent-id>",
+	Short: "Claim the highest-priority reviewable task for a reviewer agent",
+	Long: `Claim the highest-priority READY_FOR_REVIEW task for a code-reviewer agent.
+
+Atomically transitions the task to REVIEWING and assigns the reviewer.
+The task is selected automatically based on priority ordering.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		agentID := args[0]
+
+		projectRoot, err := requireProjectRoot()
+		if err != nil {
+			return err
+		}
+
+		return commands.ClaimReviewerTaskCommand(projectRoot, agentID)
 	},
 }
 
@@ -1408,6 +1431,16 @@ func requireProjectRoot() (string, error) {
 	return projectRoot, nil
 }
 
+// inferSpecType auto-detects spec type from filename.
+// Files containing "vision" → vision, "delivery" → delivery, otherwise delivery.
+func inferSpecType(specPath string) string {
+	lower := strings.ToLower(filepath.Base(specPath))
+	if strings.Contains(lower, "vision") {
+		return "vision"
+	}
+	return "delivery"
+}
+
 func requireAgentID(cmd *cobra.Command) (string, error) {
 	flagValue, _ := cmd.Flags().GetString("agent-id")
 	agentID, err := identity.Resolve(identity.Config{
@@ -1440,6 +1473,7 @@ func init() {
 	rootCmd.AddCommand(getCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(claimTaskCmd)
+	rootCmd.AddCommand(claimReviewCmd)
 	rootCmd.AddCommand(submitForReviewCmd)
 	rootCmd.AddCommand(writeCheckpointCmd)
 	rootCmd.AddCommand(handoffCmd)
@@ -1469,7 +1503,7 @@ func init() {
 	deleteCmd.AddCommand(deleteTaskCmd)
 
 	// Validate-spec command flags
-	validateSpecCmd.Flags().String("type", "delivery", "spec type: vision or delivery")
+	validateSpecCmd.Flags().String("type", "", "spec type: vision or delivery (auto-detected from filename if omitted)")
 
 	// Setup command flags
 	setupCmd.Flags().Bool("force", false, "overwrite existing global config")

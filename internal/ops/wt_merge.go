@@ -485,9 +485,18 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 		return nil, fmt.Errorf("failed to update state to MERGED: %w", err)
 	}
 
+	// Sync main working tree if integration branch is currently checked out.
+	// The plumbing-only merge updates refs but never touches the working tree,
+	// so users who have the integration branch checked out would see stale files.
+	var warnings []string
+	if currentBranch, brErr := gitWrapper.GetCurrentBranch(); brErr == nil && currentBranch == integrationBranch {
+		if resetErr := gitWrapper.ResetHard(mergeCommit); resetErr != nil {
+			warnings = append(warnings, fmt.Sprintf("failed to sync working tree after merge: %v", resetErr))
+		}
+	}
+
 	// Cleanup: Remove worktree (after state commit — safe to lose worktree now)
 	// Errors are non-fatal — state is already committed, collect as warnings
-	var warnings []string
 	if err := gitWrapper.RemoveWorktree(taskID); err != nil {
 		warnings = append(warnings, fmt.Sprintf("failed to remove worktree: %v", err))
 	}
