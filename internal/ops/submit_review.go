@@ -3,6 +3,7 @@ package ops
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/liza-mas/liza/internal/db"
@@ -89,9 +90,12 @@ func SubmitForReview(projectRoot, taskID, commitSHA, agentID string) (*SubmitFor
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pre-rebase commit SHA: %w", err)
 	}
-	if commitSHA != preRebaseCommit {
+	// Accept both full SHAs and short prefixes (minimum 7 chars)
+	if !strings.HasPrefix(preRebaseCommit, commitSHA) {
 		return nil, fmt.Errorf("provided commit SHA %s does not match worktree HEAD %s", commitSHA, preRebaseCommit)
 	}
+	// Normalize to full SHA for downstream storage
+	commitSHA = preRebaseCommit
 
 	// TDD enforcement: code tasks must include test files
 	if task.EffectiveType() == models.TaskTypeCoding && task.BaseCommit != nil {

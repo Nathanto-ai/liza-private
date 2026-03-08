@@ -37,11 +37,17 @@ AUDITOR RESPONSIBILITIES:
 1. Review each merged task's implementation against its spec/done-when criteria
 2. Check test coverage — are edge cases tested?
 3. Look for spec mismatches, missing tests, and quality issues
-4. Record findings using liza_submit_audit_finding
+4. Record findings using the submit audit finding tool (see below)
 
 AUDIT FINDING TOOL:
+If you have MCP tools available, use:
 - liza_submit_audit_finding — Record an audit finding
-  Format: {"task_id": "<task>", "severity": "HIGH|MEDIUM|LOW", "type": "SPEC_MISMATCH|MISSING_TEST|MISSING_EDGE_CASE|QUALITY_ISSUE", "evidence": "<what you found>", "recommended_action": "<what should be done>"}
+  Format: {"task_id": "<task>", "finding_id": "<unique-id>", "severity": "HIGH|MEDIUM|LOW", "type": "SPEC_MISMATCH|MISSING_TEST|MISSING_EDGE_CASE|QUALITY_ISSUE", "phase": "post_merge", "classification": "LOG_ONLY|REMEDIATE_WITH_TASK|REOPEN_TASK|REPLAN_REQUIRED", "evidence": "<what you found>", "recommended_action": "<what should be done>"}
+
+If you have shell/terminal access instead, use:
+- liza submit-audit-finding --finding-id <id> --task-id <task> --severity HIGH|MEDIUM|LOW --type SPEC_MISMATCH|MISSING_TEST|MISSING_EDGE_CASE|QUALITY_ISSUE --phase post_merge --classification LOG_ONLY|REMEDIATE_WITH_TASK|REOPEN_TASK|REPLAN_REQUIRED --evidence "<what you found>" --recommended-action "<what should be done>"
+
+YOU MUST submit findings using one of the above tools. Simply describing findings in your output is NOT sufficient — the system only tracks findings that are submitted via the tool.
 
 AUDIT SCOPE:
 - Spec compliance: Does the implementation match the task description and done-when?

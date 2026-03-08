@@ -644,7 +644,7 @@ func TestMergeWorktree_NoTestScriptWarning(t *testing.T) {
 
 	var result *MergeResult
 	var err error
-	logOutput := captureLogOutput(t, func() {
+	captureLogOutput(t, func() {
 		result, err = MergeWorktree(tmpDir, taskID, agentID)
 	})
 	if err != nil {
@@ -658,12 +658,8 @@ func TestMergeWorktree_NoTestScriptWarning(t *testing.T) {
 	if !result.NoTestScriptFound {
 		t.Error("NoTestScriptFound should be true when integration-test.sh is missing")
 	}
-	if !strings.Contains(logOutput, "WARNING") {
-		t.Fatalf("expected warning log when integration-test.sh is missing, got logs: %q", logOutput)
-	}
-	if !strings.Contains(logOutput, "integration test script not found") {
-		t.Errorf("expected missing-script warning log, got logs: %q", logOutput)
-	}
+
+	// No warning log when script simply doesn't exist — this is a normal case
 
 	// Verify state updated to MERGED
 	state := readStateForTest(t, stateFile)

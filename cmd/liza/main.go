@@ -14,6 +14,7 @@ import (
 	"github.com/liza-mas/liza/internal/agent"
 	"github.com/liza-mas/liza/internal/commands"
 	"github.com/liza-mas/liza/internal/identity"
+	"github.com/liza-mas/liza/internal/ops"
 	"github.com/liza-mas/liza/internal/paths"
 	"github.com/liza-mas/liza/internal/roles"
 	"github.com/spf13/cobra"
@@ -391,6 +392,75 @@ For REJECTED verdict:
 
 		return commands.SubmitVerdictCommand(projectRoot, taskID, verdict, reason, agentID)
 	},
+}
+
+var submitAuditFindingCmd = &cobra.Command{
+	Use:   "submit-audit-finding",
+	Short: "Submit an audit finding for a task",
+	Long: `Atomically submit an audit finding for a merged task.
+
+Used by auditor agents to record spec mismatches, missing tests,
+quality issues, and other observations discovered during code audit.
+
+Required flags:
+  --finding-id       Unique ID for this finding
+  --task-id          The task this finding applies to
+  --severity         HIGH, MEDIUM, or LOW
+  --type             SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, or QUALITY_ISSUE
+  --phase            pre_execution, post_execution, or post_merge
+  --classification   LOG_ONLY, REMEDIATE_WITH_TASK, REOPEN_TASK, or REPLAN_REQUIRED
+  --evidence         Description of what was found
+
+Optional flags:
+  --recommended-action   Suggested remediation
+  --spec-reference       Reference to relevant spec section`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		findingID, _ := cmd.Flags().GetString("finding-id")
+		taskID, _ := cmd.Flags().GetString("task-id")
+		severity, _ := cmd.Flags().GetString("severity")
+		findingType, _ := cmd.Flags().GetString("type")
+		phase, _ := cmd.Flags().GetString("phase")
+		classification, _ := cmd.Flags().GetString("classification")
+		evidence, _ := cmd.Flags().GetString("evidence")
+		recommendedAction, _ := cmd.Flags().GetString("recommended-action")
+		specReference, _ := cmd.Flags().GetString("spec-reference")
+
+		projectRoot, err := requireProjectRoot()
+		if err != nil {
+			return err
+		}
+
+		return commands.SubmitAuditFindingCommand(projectRoot, ops.AuditFindingInput{
+			FindingID:         findingID,
+			TaskID:            taskID,
+			Severity:          severity,
+			Type:              findingType,
+			Phase:             phase,
+			Classification:    classification,
+			Evidence:          evidence,
+			RecommendedAction: recommendedAction,
+			SpecReference:     specReference,
+		})
+	},
+}
+
+func init() {
+	submitAuditFindingCmd.Flags().String("finding-id", "", "unique finding ID (required)")
+	submitAuditFindingCmd.Flags().String("task-id", "", "task ID this finding applies to (required)")
+	submitAuditFindingCmd.Flags().String("severity", "", "HIGH, MEDIUM, or LOW (required)")
+	submitAuditFindingCmd.Flags().String("type", "", "SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, or QUALITY_ISSUE (required)")
+	submitAuditFindingCmd.Flags().String("phase", "", "pre_execution, post_execution, or post_merge (required)")
+	submitAuditFindingCmd.Flags().String("classification", "", "LOG_ONLY, REMEDIATE_WITH_TASK, REOPEN_TASK, or REPLAN_REQUIRED (required)")
+	submitAuditFindingCmd.Flags().String("evidence", "", "description of what was found (required)")
+	submitAuditFindingCmd.Flags().String("recommended-action", "", "suggested remediation (optional)")
+	submitAuditFindingCmd.Flags().String("spec-reference", "", "reference to relevant spec section (optional)")
+	_ = submitAuditFindingCmd.MarkFlagRequired("finding-id")
+	_ = submitAuditFindingCmd.MarkFlagRequired("task-id")
+	_ = submitAuditFindingCmd.MarkFlagRequired("severity")
+	_ = submitAuditFindingCmd.MarkFlagRequired("type")
+	_ = submitAuditFindingCmd.MarkFlagRequired("phase")
+	_ = submitAuditFindingCmd.MarkFlagRequired("classification")
+	_ = submitAuditFindingCmd.MarkFlagRequired("evidence")
 }
 
 var markBlockedCmd = &cobra.Command{
@@ -1290,6 +1360,7 @@ func init() {
 	rootCmd.AddCommand(submitForReviewCmd)
 	rootCmd.AddCommand(handoffCmd)
 	rootCmd.AddCommand(submitVerdictCmd)
+	rootCmd.AddCommand(submitAuditFindingCmd)
 	rootCmd.AddCommand(markBlockedCmd)
 	rootCmd.AddCommand(releaseClaimCmd)
 	rootCmd.AddCommand(wtCreateCmd)
