@@ -680,6 +680,16 @@ func (s *Server) registerMutationTools() {
 					Description: "Finding type",
 					Enum:        []string{"SPEC_MISMATCH", "MISSING_TEST", "MISSING_EDGE_CASE", "QUALITY_ISSUE"},
 				},
+				"phase": {
+					Type:        "string",
+					Description: "Audit phase: when in the task lifecycle this audit occurs",
+					Enum:        []string{"pre_execution", "post_execution", "post_merge"},
+				},
+				"classification": {
+					Type:        "string",
+					Description: "What action should be taken: LOG_ONLY (informational), REMEDIATE_WITH_TASK (create fix task), REOPEN_TASK (revert MERGED to READY), REPLAN_REQUIRED (trigger planner re-wake)",
+					Enum:        []string{"LOG_ONLY", "REMEDIATE_WITH_TASK", "REOPEN_TASK", "REPLAN_REQUIRED"},
+				},
 				"evidence": {
 					Type:        "string",
 					Description: "Concrete evidence supporting the finding",
@@ -697,7 +707,7 @@ func (s *Server) registerMutationTools() {
 					Description: "Auditor agent ID submitting the finding",
 				},
 			},
-			Required: []string{"finding_id", "task_id", "severity", "type", "evidence", "agent_id"},
+			Required: []string{"finding_id", "task_id", "severity", "type", "evidence", "agent_id", "phase", "classification"},
 		},
 	}, s.handleSubmitAuditFinding)
 }

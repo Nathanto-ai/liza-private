@@ -126,7 +126,7 @@ var taskTransitions = map[TaskStatus][]TaskStatus{
 	TaskStatusApproved:           {TaskStatusMerged, TaskStatusIntegrationFailed},
 	TaskStatusBlocked:            {TaskStatusSuperseded, TaskStatusAbandoned, TaskStatusNeedsHumanDecision},
 	TaskStatusIntegrationFailed:  {TaskStatusImplementing, TaskStatusAbandoned},
-	TaskStatusMerged:             {},
+	TaskStatusMerged:             {TaskStatusReady}, // audit REOPEN_TASK can reopen a merged task
 	TaskStatusAbandoned:          {},
 	TaskStatusSuperseded:         {},
 	TaskStatusNeedsHumanDecision: {TaskStatusReady, TaskStatusAbandoned, TaskStatusSuperseded},
@@ -184,13 +184,14 @@ type Task struct {
 	MaxIterations       int                `yaml:"max_iterations,omitempty"`
 	RequirementRefs     []string           `yaml:"requirement_refs,omitempty"`
 	AcceptanceCriteria  []string           `yaml:"acceptance_criteria,omitempty"`
-	VerifyCommands      []string           `yaml:"verify_commands,omitempty"`
-	ErrorBehavior       string             `yaml:"error_behavior,omitempty"`
-	OriginTaskID        string             `yaml:"origin_task_id,omitempty"`
-	OriginFindingID     string             `yaml:"origin_finding_id,omitempty"`
-	Created             time.Time          `yaml:"created"`
-	History             []TaskHistoryEntry `yaml:"history"`
-	Extra               map[string]any     `yaml:",inline"`
+	VerifyCommands      []string              `yaml:"verify_commands,omitempty"`
+	ErrorBehavior       string                `yaml:"error_behavior,omitempty"`
+	VerificationResult  *VerificationResult   `yaml:"verification_result,omitempty"`
+	OriginTaskID        string                `yaml:"origin_task_id,omitempty"`
+	OriginFindingID     string                `yaml:"origin_finding_id,omitempty"`
+	Created             time.Time             `yaml:"created"`
+	History             []TaskHistoryEntry    `yaml:"history"`
+	Extra               map[string]any        `yaml:",inline"`
 }
 
 // EffectiveType returns the task's type, defaulting to TaskTypeCoding when empty (backward compat).
@@ -529,18 +530,28 @@ type SpecChange struct {
 	Extra       map[string]any `yaml:",inline"`
 }
 
+// VerificationResult records the outcome of running verify_commands during merge.
+type VerificationResult struct {
+	Passed    bool      `yaml:"passed"`
+	Output    string    `yaml:"output,omitempty"`
+	Timestamp time.Time `yaml:"timestamp"`
+}
+
 // AuditFinding represents a structured finding from the auditor agent.
 // Findings are advisory — the supervisor retains deterministic PASS/FAIL control.
 type AuditFinding struct {
 	ID                string         `yaml:"id"`
 	TaskID            string         `yaml:"task_id"`
-	Severity          string         `yaml:"severity"` // HIGH, MEDIUM, LOW
-	Type              string         `yaml:"type"`     // SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, QUALITY_ISSUE
+	Severity          string         `yaml:"severity"`          // HIGH, MEDIUM, LOW
+	Type              string         `yaml:"type"`              // SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, QUALITY_ISSUE
+	Phase             string         `yaml:"phase,omitempty"`   // pre_execution, post_execution, post_merge
+	Classification    string         `yaml:"classification,omitempty"` // LOG_ONLY, REMEDIATE_WITH_TASK, REOPEN_TASK, REPLAN_REQUIRED
 	SpecReference     string         `yaml:"spec_reference,omitempty"`
 	Evidence          string         `yaml:"evidence"`
 	RecommendedAction string         `yaml:"recommended_action,omitempty"`
 	Created           time.Time      `yaml:"created"`
 	Resolved          bool           `yaml:"resolved,omitempty"`
+	LinkedTaskID      string         `yaml:"linked_task_id,omitempty"` // for REMEDIATE_WITH_TASK: the remediation task ID
 	Extra             map[string]any `yaml:",inline"`
 }
 
@@ -553,6 +564,28 @@ func (f *AuditFinding) IsValidSeverity() bool {
 func (f *AuditFinding) IsValidType() bool {
 	validTypes := []string{"SPEC_MISMATCH", "MISSING_TEST", "MISSING_EDGE_CASE", "QUALITY_ISSUE"}
 	return slices.Contains(validTypes, f.Type)
+}
+
+// ValidAuditPhases are the allowed values for AuditFinding.Phase.
+var ValidAuditPhases = []string{"pre_execution", "post_execution", "post_merge"}
+
+// IsValidPhase checks if the audit finding phase is valid.
+func (f *AuditFinding) IsValidPhase() bool {
+	if f.Phase == "" {
+		return true // phase is optional for backward compatibility
+	}
+	return slices.Contains(ValidAuditPhases, f.Phase)
+}
+
+// ValidClassifications are the allowed values for AuditFinding.Classification.
+var ValidClassifications = []string{"LOG_ONLY", "REMEDIATE_WITH_TASK", "REOPEN_TASK", "REPLAN_REQUIRED"}
+
+// IsValidClassification checks if the audit finding classification is valid.
+func (f *AuditFinding) IsValidClassification() bool {
+	if f.Classification == "" {
+		return true // classification is optional for backward compatibility
+	}
+	return slices.Contains(ValidClassifications, f.Classification)
 }
 
 // Anomaly represents an execution anomaly that may trigger circuit breaker
@@ -744,7 +777,8 @@ type Config struct {
 	MaxTasksGenerated       int            `yaml:"max_tasks_generated,omitempty"`
 	MaxAgentIterations      int            `yaml:"max_agent_iterations,omitempty"`
 	MaxRuntimeMinutes       int            `yaml:"max_runtime_minutes,omitempty"`
-	EnforceRequirementRefs  bool           `yaml:"enforce_requirement_refs,omitempty"`
-	EnforceDeduplication    bool           `yaml:"enforce_deduplication,omitempty"`
-	Extra                   map[string]any `yaml:",inline"`
+	EnforceRequirementRefs     bool           `yaml:"enforce_requirement_refs,omitempty"`
+	EnforceDeduplication       bool           `yaml:"enforce_deduplication,omitempty"`
+	RequireAuditForSprintClose bool           `yaml:"require_audit_for_sprint_close,omitempty"`
+	Extra                      map[string]any `yaml:",inline"`
 }

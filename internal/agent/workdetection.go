@@ -14,6 +14,8 @@ const (
 	WakeTriggerHypothesisExhausted PlannerWakeTrigger = "HYPOTHESIS_EXHAUSTED"
 	WakeTriggerImmediateDiscovery  PlannerWakeTrigger = "IMMEDIATE_DISCOVERY"
 	WakeTriggerSprintComplete      PlannerWakeTrigger = "SPRINT_COMPLETE"
+	WakeTriggerReplanRequired      PlannerWakeTrigger = "AUDIT_REPLAN_REQUIRED"
+	WakeTriggerRemediationNeeded   PlannerWakeTrigger = "AUDIT_REMEDIATION_NEEDED"
 	WakeTriggerNone                PlannerWakeTrigger = "NONE"
 )
 
@@ -74,6 +76,16 @@ var plannerWakeTriggerSpecs = []plannerWakeTriggerSpec{
 			return 0
 		},
 	},
+	{
+		Trigger:     WakeTriggerReplanRequired,
+		Description: "Audit findings with REPLAN_REQUIRED classification need planner intervention.",
+		Count:       countUnresolvedReplanFindings,
+	},
+	{
+		Trigger:     WakeTriggerRemediationNeeded,
+		Description: "Audit findings with REMEDIATE_WITH_TASK classification need remediation tasks.",
+		Count:       countUnresolvedRemediationFindings,
+	},
 }
 
 // DetectPlannerWakeTriggers detects conditions that should wake the planner
@@ -85,6 +97,8 @@ var plannerWakeTriggerSpecs = []plannerWakeTriggerSpec{
 // 4. Hypothesis exhausted (2+ failed_by)
 // 5. Immediate discoveries (not yet converted to tasks)
 // 6. Sprint complete (all planned tasks terminal)
+// 7. Audit REPLAN_REQUIRED (unresolved findings requiring plan changes)
+// 8. Audit REMEDIATE_WITH_TASK (findings needing new remediation tasks)
 func DetectPlannerWakeTriggers(state *models.State) PlannerWakeResult {
 	for _, triggerSpec := range plannerWakeTriggerSpecs {
 		if count := triggerSpec.Count(state); count > 0 {
@@ -125,6 +139,30 @@ func countImmediateDiscoveries(state *models.State) int {
 	count := 0
 	for _, disc := range state.Discovered {
 		if disc.Urgency == "immediate" && disc.ConvertedToTask == nil {
+			count++
+		}
+	}
+	return count
+}
+
+// countUnresolvedReplanFindings counts audit findings classified as REPLAN_REQUIRED
+// that have not been resolved. These indicate the planner must re-evaluate the plan.
+func countUnresolvedReplanFindings(state *models.State) int {
+	count := 0
+	for _, f := range state.AuditFindings {
+		if f.Classification == "REPLAN_REQUIRED" && !f.Resolved {
+			count++
+		}
+	}
+	return count
+}
+
+// countUnresolvedRemediationFindings counts audit findings classified as
+// REMEDIATE_WITH_TASK that have no linked remediation task yet.
+func countUnresolvedRemediationFindings(state *models.State) int {
+	count := 0
+	for _, f := range state.AuditFindings {
+		if f.Classification == "REMEDIATE_WITH_TASK" && !f.Resolved && f.LinkedTaskID == "" {
 			count++
 		}
 	}

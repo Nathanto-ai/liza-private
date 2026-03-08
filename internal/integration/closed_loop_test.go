@@ -70,6 +70,8 @@ func TestClosedLoop_FindingToTask(t *testing.T) {
 		"Input validation missing for empty strings",
 		"Add input validation for empty string edge case",
 		"AC-2",
+		"post_execution",
+		"LOG_ONLY",
 	)
 
 	if !finding.IsValidSeverity() {
@@ -386,6 +388,8 @@ func TestQualityGate_AuditFindingValidation(t *testing.T) {
 		"Expected X, got Y",
 		"Fix handler to return X",
 		"AC-1",
+		"post_execution",
+		"LOG_ONLY",
 	)
 	if !validFinding.IsValidSeverity() {
 		t.Error("HIGH should be valid severity")

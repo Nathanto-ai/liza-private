@@ -65,7 +65,7 @@ func TestFindAuditTarget(t *testing.T) {
 			wantPhase:  AuditPhasePreExecution,
 		},
 		{
-			name: "already audited task is skipped",
+			name: "already audited task in same phase is skipped",
 			tasks: []models.Task{
 				{
 					ID:           "task-1",
@@ -86,6 +86,7 @@ func TestFindAuditTarget(t *testing.T) {
 					TaskID:   "task-1",
 					Severity: "LOW",
 					Type:     "QUALITY_ISSUE",
+					Phase:    "post_execution",
 					Evidence: "minor issue",
 					Created:  now,
 				},
@@ -140,7 +141,7 @@ func TestFindAuditTarget(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name: "MERGED task not selected",
+			name: "MERGED task selected for post-merge audit",
 			tasks: []models.Task{
 				{
 					ID:          "task-1",
@@ -154,7 +155,8 @@ func TestFindAuditTarget(t *testing.T) {
 					History:     []models.TaskHistoryEntry{},
 				},
 			},
-			wantNil: true,
+			wantTaskID: "task-1",
+			wantPhase:  AuditPhasePostMerge,
 		},
 	}
 
@@ -194,7 +196,7 @@ func TestNewFinding(t *testing.T) {
 	t.Parallel()
 
 	finding := NewFinding("f-1", "task-42", "HIGH", "SPEC_MISMATCH",
-		"Expected X got Y", "Update implementation", "AC-3")
+		"Expected X got Y", "Update implementation", "AC-3", "post_execution", "LOG_ONLY")
 
 	if finding.ID != "f-1" {
 		t.Errorf("ID = %q, want %q", finding.ID, "f-1")

@@ -16,6 +16,8 @@ type AuditFindingInput struct {
 	TaskID            string
 	Severity          string // HIGH, MEDIUM, LOW
 	Type              string // SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, QUALITY_ISSUE
+	Phase             string // pre_execution, post_execution, post_merge
+	Classification    string // LOG_ONLY, REMEDIATE_WITH_TASK, REOPEN_TASK, REPLAN_REQUIRED
 	Evidence          string
 	RecommendedAction string
 	SpecReference     string
@@ -23,9 +25,12 @@ type AuditFindingInput struct {
 
 // AuditFindingResult contains the outcome of submitting an audit finding.
 type AuditFindingResult struct {
-	FindingID string
-	TaskID    string
-	Severity  string
+	FindingID      string
+	TaskID         string
+	Severity       string
+	Classification string
+	TaskReopened   bool   // true if REOPEN_TASK caused MERGED → READY
+	LinkedTaskID   string // set if REMEDIATE_WITH_TASK (placeholder for future use)
 }
 
 // SubmitAuditFinding atomically adds an audit finding to the project state.
@@ -57,6 +62,8 @@ func SubmitAuditFinding(projectRoot string, input AuditFindingInput) (*AuditFind
 		TaskID:            input.TaskID,
 		Severity:          input.Severity,
 		Type:              input.Type,
+		Phase:             input.Phase,
+		Classification:    input.Classification,
 		Evidence:          input.Evidence,
 		RecommendedAction: input.RecommendedAction,
 		SpecReference:     input.SpecReference,
@@ -69,6 +76,14 @@ func SubmitAuditFinding(projectRoot string, input AuditFindingInput) (*AuditFind
 	if !finding.IsValidType() {
 		return nil, fmt.Errorf("invalid type %q (must be SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, or QUALITY_ISSUE)", input.Type)
 	}
+	if !finding.IsValidPhase() {
+		return nil, fmt.Errorf("invalid phase %q (must be pre_execution, post_execution, or post_merge)", input.Phase)
+	}
+	if !finding.IsValidClassification() {
+		return nil, fmt.Errorf("invalid classification %q (must be LOG_ONLY, REMEDIATE_WITH_TASK, REOPEN_TASK, or REPLAN_REQUIRED)", input.Classification)
+	}
+
+	var taskReopened bool
 
 	err := bb.Modify(func(state *models.State) error {
 		// Verify the referenced task exists
@@ -84,6 +99,15 @@ func SubmitAuditFinding(projectRoot string, input AuditFindingInput) (*AuditFind
 			}
 		}
 
+		// Handle REOPEN_TASK classification: transition MERGED → READY
+		if input.Classification == "REOPEN_TASK" && task.Status == models.TaskStatusMerged {
+			if !task.Status.CanTransition(models.TaskStatusReady) {
+				return fmt.Errorf("cannot reopen task %q: MERGED → READY transition not allowed", input.TaskID)
+			}
+			task.Status = models.TaskStatusReady
+			taskReopened = true
+		}
+
 		state.AuditFindings = append(state.AuditFindings, finding)
 		return nil
 	})
@@ -93,8 +117,10 @@ func SubmitAuditFinding(projectRoot string, input AuditFindingInput) (*AuditFind
 	}
 
 	return &AuditFindingResult{
-		FindingID: input.FindingID,
-		TaskID:    input.TaskID,
-		Severity:  input.Severity,
+		FindingID:      input.FindingID,
+		TaskID:         input.TaskID,
+		Severity:       input.Severity,
+		Classification: input.Classification,
+		TaskReopened:   taskReopened,
 	}, nil
 }

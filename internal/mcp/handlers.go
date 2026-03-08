@@ -737,11 +737,23 @@ func (s *Server) handleSubmitAuditFinding(params map[string]any) (any, error) {
 	recommendedAction, _ := params["recommended_action"].(string)
 	specReference, _ := params["spec_reference"].(string)
 
+	phase, err := requireString(params, "phase")
+	if err != nil {
+		return nil, err
+	}
+
+	classification, err := requireString(params, "classification")
+	if err != nil {
+		return nil, err
+	}
+
 	result, err := ops.SubmitAuditFinding(s.projectRoot, ops.AuditFindingInput{
 		FindingID:         findingID,
 		TaskID:            taskID,
 		Severity:          severity,
 		Type:              findingType,
+		Phase:             phase,
+		Classification:    classification,
 		Evidence:          evidence,
 		RecommendedAction: recommendedAction,
 		SpecReference:     specReference,
@@ -750,5 +762,9 @@ func (s *Server) handleSubmitAuditFinding(params map[string]any) (any, error) {
 		return nil, fmt.Errorf("submit audit finding failed: %w", err)
 	}
 
-	return textResult(fmt.Sprintf("Audit finding %s submitted for task %s (severity: %s)", result.FindingID, result.TaskID, result.Severity))
+	msg := fmt.Sprintf("Audit finding %s submitted for task %s (severity: %s, classification: %s, phase: %s)", result.FindingID, result.TaskID, result.Severity, result.Classification, phase)
+	if result.TaskReopened {
+		msg += fmt.Sprintf(" — task %s reopened (MERGED → READY)", result.TaskID)
+	}
+	return textResult(msg)
 }

@@ -301,31 +301,53 @@ func waitForPlannerWork(ctx context.Context, bb *db.Blackboard, projectRoot stri
 		})
 }
 
-// waitForAuditorWork waits for MERGED tasks that have no audit findings yet.
-// The auditor reviews completed work for spec compliance, quality, and coverage.
+// waitForAuditorWork waits for tasks that need auditing in any phase:
+// MERGED tasks needing post-merge audit, READY_FOR_REVIEW needing post-execution audit,
+// or READY tasks needing pre-execution audit.
 func waitForAuditorWork(ctx context.Context, bb *db.Blackboard, projectRoot string, pollInterval, maxWait time.Duration) (bool, error) {
 	return waitForWorkEventDriven(ctx, bb, projectRoot, pollInterval, maxWait,
 		func(s *models.State) (bool, string) {
-			unaudited := countUnauditedMergedTasks(s)
+			unaudited := countUnauditedTasks(s)
 			if unaudited > 0 {
-				return true, fmt.Sprintf("Found %d merged task(s) awaiting audit", unaudited)
+				return true, fmt.Sprintf("Found %d task(s) awaiting audit", unaudited)
 			}
 			return false, ""
 		})
 }
 
-// countUnauditedMergedTasks counts MERGED tasks that have no audit findings.
-func countUnauditedMergedTasks(state *models.State) int {
-	// Build set of task IDs that already have audit findings
-	audited := make(map[string]bool, len(state.AuditFindings))
+// countUnauditedTasks counts tasks that need auditing in any phase:
+// MERGED without post_merge audit, READY_FOR_REVIEW without post_execution audit,
+// or READY without pre_execution audit.
+func countUnauditedTasks(state *models.State) int {
+	// Build per-phase audit set
+	audited := make(map[string]map[string]bool, len(state.AuditFindings))
 	for _, finding := range state.AuditFindings {
-		audited[finding.TaskID] = true
+		if audited[finding.TaskID] == nil {
+			audited[finding.TaskID] = make(map[string]bool)
+		}
+		if finding.Phase != "" {
+			audited[finding.TaskID][finding.Phase] = true
+		}
 	}
 
 	count := 0
 	for _, task := range state.Tasks {
-		if task.Status == models.TaskStatusMerged && !audited[task.ID] {
-			count++
+		switch task.Status {
+		case models.TaskStatusMerged:
+			phases := audited[task.ID]
+			if phases == nil || !phases["post_merge"] {
+				count++
+			}
+		case models.TaskStatusReadyForReview:
+			phases := audited[task.ID]
+			if phases == nil || !phases["post_execution"] {
+				count++
+			}
+		case models.TaskStatusReady:
+			phases := audited[task.ID]
+			if phases == nil || !phases["pre_execution"] {
+				count++
+			}
 		}
 	}
 	return count

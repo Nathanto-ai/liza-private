@@ -171,6 +171,8 @@ func TestIntegration_AuditToVerifyPipeline(t *testing.T) {
 		"No validation for whitespace-only strings",
 		"Add whitespace-only test case",
 		"AC-1",
+		"post_execution",
+		"LOG_ONLY",
 	)
 	if !finding.IsValidSeverity() || !finding.IsValidType() {
 		t.Fatal("finding should be valid")
@@ -360,12 +362,13 @@ func TestIntegration_MultipleAuditTargetPriority(t *testing.T) {
 		t.Errorf("phase = %q, want post_execution", target.Phase)
 	}
 
-	// Mark RFR task as audited
+	// Mark RFR task as audited (with phase for per-phase dedup)
 	state.AuditFindings = append(state.AuditFindings, models.AuditFinding{
 		ID:       "f-rfr",
 		TaskID:   "task-rfr",
 		Severity: "LOW",
 		Type:     "QUALITY_ISSUE",
+		Phase:    "post_execution",
 		Evidence: "already audited",
 		Created:  now,
 	})

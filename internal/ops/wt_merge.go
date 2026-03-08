@@ -316,6 +316,55 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 		log.Printf("wt-merge %s: WARNING — unable to stat integration test script at %s: %v; proceeding without tests", taskID, integrationTestScript, statErr)
 	}
 
+	// Run task-specific verify_commands if defined (hard gate — failure → INTEGRATION_FAILED)
+	var verifyResult *models.VerificationResult
+	if len(task.VerifyCommands) > 0 {
+		var verifyBuf bytes.Buffer
+		verifyPassed := true
+		for _, vcmd := range task.VerifyCommands {
+			log.Printf("wt-merge %s: running verify command: %s", taskID, vcmd)
+			cmd := exec.Command("sh", "-c", vcmd)
+			cmd.Dir = projectRoot
+			cmd.Stdout = &verifyBuf
+			cmd.Stderr = &verifyBuf
+			if runErr := cmd.Run(); runErr != nil {
+				verifyBuf.WriteString(fmt.Sprintf("\n[FAIL] %s: %v\n", vcmd, runErr))
+				verifyPassed = false
+				break
+			}
+			verifyBuf.WriteString(fmt.Sprintf("\n[PASS] %s\n", vcmd))
+		}
+		verifyResult = &models.VerificationResult{
+			Passed:    verifyPassed,
+			Output:    verifyBuf.String(),
+			Timestamp: time.Now().UTC(),
+		}
+		if !verifyPassed {
+			// Rollback merge if verification fails
+			if err := gitWrapper.UpdateRef(integrationRef, preMergeHEAD, mergeCommit); err != nil {
+				var casErr *git.RefConflictError
+				if !errors.As(err, &casErr) {
+					log.Printf("wt-merge %s: rollback after verify failure: %v", taskID, err)
+				}
+			}
+			// Persist verification result before marking failed
+			_ = bb.Modify(func(s *models.State) error {
+				t := s.FindTask(taskID)
+				if t != nil {
+					t.VerificationResult = verifyResult
+				}
+				return nil
+			})
+			if updateErr := markIntegrationFailed(bb, taskID, agentID, "verify_commands failed", mergeCommit); updateErr != nil {
+				return nil, fmt.Errorf("failed to update state to INTEGRATION_FAILED: %w", updateErr)
+			}
+			return nil, &IntegrationFailedError{
+				Reason:     IntegrationReasonTestsFailed,
+				TestOutput: verifyResult.Output,
+			}
+		}
+	}
+
 	// Update state to MERGED (before worktree cleanup — if write fails,
 	// worktree still exists for investigation; reverse order would lose the worktree
 	// while state still says APPROVED)
@@ -333,6 +382,7 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 		}
 		t.Worktree = nil
 		t.MergeCommit = &mergeCommit
+		t.VerificationResult = verifyResult // nil if no verify_commands defined
 
 		// Release the assigned agent
 		if t.AssignedTo != nil {
