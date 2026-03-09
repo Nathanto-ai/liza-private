@@ -62,7 +62,7 @@ LIMITS: Iteration and review cycle limits are enforced — task escalates to BLO
 CODER TOOLS:
 - liza_submit_for_review — Submit completed work for review
   {"task_id": "{{.Task.ID}}", "commit_sha": "<SHA>", "agent_id": "{{.Config.AgentID}}"}
-  Get SHA first: git -C {{.WorktreePath}} rev-parse HEAD
+  Get SHA via liza_exec: {"command": "git rev-parse HEAD", "cwd": "{{.WorktreePath}}"}
 - liza_handoff — Context near exhaustion (~90%)
   {"task_id": "{{.Task.ID}}", "summary": "<what is done>", "next_action": "<exact next step>", "agent_id": "{{.Config.AgentID}}"}
 - liza_mark_blocked — Cannot proceed (spec ambiguity, missing dependency)
@@ -70,6 +70,13 @@ CODER TOOLS:
 - liza_write_checkpoint — Write pre-execution checkpoint (REQUIRED before submission)
   {"task_id": "{{.Task.ID}}", "agent_id": "{{.Config.AgentID}}", "intent": "<what>", "validation_plan": "<how to verify>", "files_to_modify": ["<file1>"]}
   Optional: "assumptions", "risks", "tdd_not_required" (justification if no new tests needed)
+
+SHELL EXECUTION:
+All shell commands (git, pytest, python, etc.) MUST be executed via liza_exec MCP tool.
+You do NOT have direct shell access. Use liza_exec for everything:
+  - Run tests: liza_exec {"command": "pytest tests/ -v", "cwd": "{{.WorktreePath}}"}
+  - Check git: liza_exec {"command": "git rev-parse HEAD", "cwd": "{{.WorktreePath}}"}
+  - Run python: liza_exec {"command": "python -m lead_crawler.cli run --config tests/fixtures/sources_fixture.yml", "cwd": "{{.WorktreePath}}"}
 
 ANOMALY LOGGING:
 | Event | Type | Required Fields |
@@ -99,7 +106,7 @@ If a required tool or dependency is missing (e.g., pip, npm, cargo):
 
 --- IMPLEMENTATION PHASE ---
 1. The task is already IMPLEMENTING for you. Do NOT run liza claim-task.
-2. Work ONLY in the worktree directory: cd {{.WorktreePath}}
+2. Work ONLY in the worktree directory. Use liza_exec with cwd={{.WorktreePath}} for all shell commands.
 3. TDD (code tasks): Write tests FIRST that verify done_when criteria, then implement until tests pass
 4. Tests are MANDATORY for code tasks — Code Reviewer will reject code without tests. Use the testing skill.
 5. Exempt: doc-only, config-only, or spec-only tasks (no code = no tests required)
@@ -110,7 +117,7 @@ If a required tool or dependency is missing (e.g., pip, npm, cargo):
 
 --- SUBMISSION (MANDATORY - DO NOT SKIP) ---
 After implementation and tests pass, you MUST submit for review:
-1. Get commit SHA: git -C {{.WorktreePath}} rev-parse HEAD
+1. Get commit SHA via liza_exec: {"command": "git rev-parse HEAD", "cwd": "{{.WorktreePath}}"}
 2. Execute liza_submit_for_review: {"task_id": "{{.Task.ID}}", "commit_sha": "<SHA from step 1>", "agent_id": "{{.Config.AgentID}}"}
 3. Verify confirmation: status changed to READY_FOR_REVIEW
 

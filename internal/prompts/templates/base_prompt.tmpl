@@ -35,6 +35,10 @@ QUERY TOOLS (all roles):
 - liza_get — Query state: {"query": "tasks"}, {"query": "tasks/<id>"}, {"query": "agents"}, {"query": "metrics"}
 - liza_status — Dashboard overview (no params)
 - liza_validate — Validate state consistency (params: skip_spec_check)
+- liza_exec — Execute a shell command: {"command": "<cmd>", "cwd": "<optional relative dir>", "timeout_seconds": <optional, default 30>}
+  Use this for ALL shell operations: git, pytest, python, build tools, etc.
+  Example: {"command": "pytest tests/ -v"}, {"command": "git rev-parse HEAD"}
+  The cwd defaults to the project root. Set cwd to a worktree relative path for worktree operations.
 
 COMMUNICATION: Agents communicate via blackboard only, not direct interaction.
 

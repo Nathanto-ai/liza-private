@@ -56,15 +56,15 @@ Approval = matches requirements + spec + tests + no defects.
 Does NOT mean: perfect, no improvements possible, or production-ready.
 
 INSTRUCTIONS:
-1. Verify tools work: ls -la {{.WorktreePath}}
+1. Verify tools work: liza_exec {"command": "ls -la", "cwd": "{{.WorktreePath}}"}
    If you see a permission prompt, that is NORMAL. Execute the command — do NOT stop.
-2. Early drift check: git -C {{.WorktreePath}} rev-parse HEAD — if it doesn't match REVIEW_COMMIT ({{.ReviewCommit}}), stop early (verdict submission will reject the mismatch).
-3. Review ALL changes: git -C {{.WorktreePath}} diff {{.BaseCommit}}..{{.ReviewCommit}}
+2. Early drift check: liza_exec {"command": "git rev-parse HEAD", "cwd": "{{.WorktreePath}}"} — if it doesn't match REVIEW_COMMIT ({{.ReviewCommit}}), stop early (verdict submission will reject the mismatch).
+3. Review ALL changes: liza_exec {"command": "git diff {{.BaseCommit}}..{{.ReviewCommit}}", "cwd": "{{.WorktreePath}}"}
    Each review is a fresh evaluation: "does this worktree satisfy the task?"
 4. Apply the code-review skill to the full diff
 5. If change touches specs/, introduces new abstractions, adds state/lifecycle, or spans 3+ modules: also apply systemic-thinking skill
 6. TDD QUALITY (code tasks): Tests must cover done_when criteria — REJECT if tests are superficial or don't exercise the actual requirements
-7. Test discovery (e.g. pytest, python -m unittest discover) finding 0 tests is a blocker — tests must be discoverable, not just runnable when explicitly named
+7. Test discovery (e.g. liza_exec {"command": "pytest tests/ -v", "cwd": "{{.WorktreePath}}"}) finding 0 tests is a blocker — tests must be discoverable, not just runnable when explicitly named
 8. Verify the done_when criteria are met AND tests exercise those criteria (for code tasks)
 {{- if .HasPriorRejection}}
 
