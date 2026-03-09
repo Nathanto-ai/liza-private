@@ -141,7 +141,10 @@ func (s *Server) handleGet(params map[string]any) (any, error) {
 		Internal:    false, // Get formatted output
 	}
 
-	result, err := commands.InspectCommand([]string{query}, opts)
+	// Split query on "/" to support path-style queries like "tasks/my-task-id"
+	args := strings.Split(query, "/")
+
+	result, err := commands.InspectCommand(args, opts)
 	if err != nil {
 		return nil, fmt.Errorf("inspect command failed: %w", err)
 	}

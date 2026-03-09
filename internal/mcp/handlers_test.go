@@ -243,6 +243,87 @@ func TestReadAgentsResource(t *testing.T) {
 	}
 }
 
+// extractTextContent extracts the text from a tool result's content array
+func extractTextContent(result map[string]any) string {
+	contentArr, ok := result["content"].([]any)
+	if !ok || len(contentArr) == 0 {
+		return ""
+	}
+	first, ok := contentArr[0].(map[string]any)
+	if !ok {
+		return ""
+	}
+	text, _ := first["text"].(string)
+	return text
+}
+
+// TestHandleGetSlashQuery verifies liza_get with slash-style query like "tasks/task-1"
+func TestHandleGetSlashQuery(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+
+	result, err := server.handleGet(map[string]any{
+		"query":  "tasks/task-1",
+		"format": "json",
+	})
+
+	if err != nil {
+		t.Fatalf("handleGet with slash query failed: %v", err)
+	}
+
+	content, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("Expected result to be map")
+	}
+
+	if content["content"] == nil {
+		t.Error("Expected content field in result")
+	}
+
+	// Verify it actually returned info about task-1
+	text := extractTextContent(content)
+	if !strings.Contains(text, "task-1") {
+		t.Errorf("Expected response to contain task-1, got: %s", text)
+	}
+}
+
+// TestHandleGetStateQuery verifies liza_get with "state" query
+func TestHandleGetStateQuery(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+
+	result, err := server.handleGet(map[string]any{
+		"query":  "state",
+		"format": "json",
+	})
+
+	if err != nil {
+		t.Fatalf("handleGet with state query failed: %v", err)
+	}
+
+	content, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("Expected result to be map")
+	}
+
+	if content["content"] == nil {
+		t.Error("Expected content field in result")
+	}
+
+	// Verify it returns state containing tasks and agents
+	text := extractTextContent(content)
+	if !strings.Contains(text, "task-1") {
+		t.Errorf("Expected state to contain task-1, got: %s", text)
+	}
+	if !strings.Contains(text, "coder-1") {
+		t.Errorf("Expected state to contain coder-1, got: %s", text)
+	}
+}
+
 // TestHandleGetWithInvalidQuery verifies error handling for invalid queries
 func TestHandleGetWithInvalidQuery(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspace(t)
