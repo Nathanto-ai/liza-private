@@ -285,8 +285,9 @@ func TestClaimCoderTask_NoClaimableTasks(t *testing.T) {
 	now := time.Now().UTC()
 	state := testhelpers.CreateValidState()
 
-	// Create only non-claimable tasks
+	// Create only non-claimable tasks (assigned to a different agent)
 	taskClaimed := testhelpers.BuildTaskByStatus("task-claimed", models.TaskStatusImplementing, now)
+	taskClaimed.AssignedTo = testhelpers.StringPtr("coder-2")
 	taskClaimed.Priority = 1
 
 	taskMerged := testhelpers.BuildTaskByStatus("task-merged", models.TaskStatusMerged, now)
@@ -295,7 +296,8 @@ func TestClaimCoderTask_NoClaimableTasks(t *testing.T) {
 	state.Tasks = []models.Task{taskClaimed, taskMerged}
 	bb := testhelpers.WriteInitialState(t, statePath, state)
 
-	// Attempt to claim a task
+	// Attempt to claim a task — should fail because there are no READY tasks
+	// and the IMPLEMENTING task belongs to a different agent
 	_, _, err := claimCoderTask(tmpDir, "coder-1", bb)
 	if err == nil {
 		t.Fatal("Expected error when no claimable tasks, got nil")

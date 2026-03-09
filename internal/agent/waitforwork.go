@@ -235,12 +235,15 @@ func waitForWorkPolling(
 	}
 }
 
-// waitForCoderWork waits for claimable tasks or resumable handoff tasks.
+// waitForCoderWork waits for claimable tasks, resumable handoff tasks,
+// or tasks already claimed by this agent that are still IMPLEMENTING
+// (i.e. the previous CLI invocation exited without completing the task).
 func waitForCoderWork(ctx context.Context, bb *db.Blackboard, projectRoot, agentID string, pollInterval, maxWait time.Duration) (bool, error) {
 	return waitForWorkEventDriven(ctx, bb, projectRoot, pollInterval, maxWait,
 		func(s *models.State) (bool, string) {
 			claimable := models.CountClaimableTasks(s, models.RoleCoder)
 			resumableHandoffs := countResumableHandoffTasks(s, agentID)
+			ownInProgress := countOwnInProgressTasks(s, agentID)
 			logMsg := models.GetCoderWorkDiagnostics(s)
 
 			if resumableHandoffs > 0 {
@@ -252,7 +255,16 @@ func waitForCoderWork(ctx context.Context, bb *db.Blackboard, projectRoot, agent
 				}
 			}
 
-			return claimable > 0 || resumableHandoffs > 0, logMsg
+			if ownInProgress > 0 {
+				ownMsg := fmt.Sprintf("Found %d in-progress task(s) already claimed by %s", ownInProgress, agentID)
+				if logMsg != "" {
+					logMsg = ownMsg + "; " + logMsg
+				} else {
+					logMsg = ownMsg
+				}
+			}
+
+			return claimable > 0 || resumableHandoffs > 0 || ownInProgress > 0, logMsg
 		})
 }
 
@@ -267,6 +279,23 @@ func countResumableHandoffTasks(state *models.State, agentID string) int {
 	count := 0
 	for i := range state.Tasks {
 		if isResumableHandoff(&state.Tasks[i], agentID) {
+			count++
+		}
+	}
+	return count
+}
+
+// countOwnInProgressTasks counts tasks that are IMPLEMENTING and already
+// assigned to this agent (but not handoff-pending, which is handled separately).
+// This enables re-invocation when the CLI exits without completing the task.
+func countOwnInProgressTasks(state *models.State, agentID string) int {
+	count := 0
+	for i := range state.Tasks {
+		task := &state.Tasks[i]
+		if task.Status == models.TaskStatusImplementing &&
+			!task.HandoffPending &&
+			task.AssignedTo != nil &&
+			*task.AssignedTo == agentID {
 			count++
 		}
 	}

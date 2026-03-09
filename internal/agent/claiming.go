@@ -32,6 +32,22 @@ func claimCoderTask(projectRoot, agentID string, bb *db.Blackboard) (taskID, wor
 		return "", "", fmt.Errorf("failed to read state: %w", err)
 	}
 
+	// Check for tasks already IMPLEMENTING and assigned to this agent.
+	// This handles re-invocation when the CLI exited without completing.
+	for i := range state.Tasks {
+		task := &state.Tasks[i]
+		if task.Status == models.TaskStatusImplementing &&
+			task.AssignedTo != nil &&
+			*task.AssignedTo == agentID {
+			wt := ""
+			if task.Worktree != nil {
+				wt = *task.Worktree
+			}
+			logger.Info("Re-claiming own in-progress task", "task_id", task.ID, "agent_id", agentID)
+			return task.ID, wt, nil
+		}
+	}
+
 	var candidates []*models.Task
 	for i := range state.Tasks {
 		if state.Tasks[i].IsClaimable(models.RoleCoder, state.Tasks) {
