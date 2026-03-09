@@ -13,7 +13,9 @@ import (
 
 	"github.com/liza-mas/liza/internal/agent"
 	"github.com/liza-mas/liza/internal/commands"
+	"github.com/liza-mas/liza/internal/db"
 	"github.com/liza-mas/liza/internal/identity"
+	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/ops"
 	"github.com/liza-mas/liza/internal/paths"
 	"github.com/liza-mas/liza/internal/roles"
@@ -1076,7 +1078,13 @@ Example:
 
   # Using LIZA_AGENT_ID environment variable
   LIZA_AGENT_ID=coder-1 liza agent coder
-  LIZA_AGENT_ID=code-reviewer-1 liza agent code-reviewer --cli claude`,
+  LIZA_AGENT_ID=code-reviewer-1 liza agent code-reviewer --cli claude
+
+  # Using Copilot CLI backend (default model: gpt-5-mini)
+  liza agent coder --agent-id coder-1 --cli copilot --auto-approve
+
+  # Copilot with explicit model override
+  liza agent coder --agent-id coder-1 --cli copilot --model claude-opus-4.6`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		role := args[0]
@@ -1109,9 +1117,15 @@ Example:
 		logOutput, _ := cmd.Flags().GetBool("log")
 		autoApprove, _ := cmd.Flags().GetBool("auto-approve")
 		maxLoops, _ := cmd.Flags().GetInt("max-loops")
+		copilotModel, _ := cmd.Flags().GetString("model")
 
-		if !slices.Contains([]string{"claude", "codex", "gemini", "mistral", "kimi"}, cliName) {
-			return fmt.Errorf("invalid CLI: %s (must be claude, codex, gemini, mistral, or kimi)", cliName)
+		if !slices.Contains([]string{"claude", "codex", "gemini", "mistral", "kimi", "copilot"}, cliName) {
+			return fmt.Errorf("invalid CLI: %s (must be claude, codex, gemini, mistral, kimi, or copilot)", cliName)
+		}
+
+		// --model is only valid with --cli copilot
+		if copilotModel != "" && cliName != "copilot" {
+			return fmt.Errorf("--model is only supported with --cli copilot")
 		}
 
 		// --log is incompatible with -i (interactive mode)
@@ -1131,19 +1145,43 @@ Example:
 			outputsDir = lizaPaths.AgentOutputsDir()
 		}
 
+		// Resolve Copilot model configuration if using copilot backend
+		var executor agent.CLIExecutor
+		if cliName == "copilot" {
+			statePath := filepath.Join(projectRoot, ".liza", "state.yaml")
+			cfg := models.Config{}
+			if bb := db.For(statePath); bb != nil {
+				if state, readErr := bb.Read(); readErr == nil {
+					cfg = state.Config
+				}
+			}
+			copilotCfg, resolveErr := agent.ResolveCopilotModel(cfg, copilotModel)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			if copilotCfg.WasFallback {
+				fmt.Fprintf(os.Stderr, "Note: Copilot default model %q unavailable, using fallback %q\n",
+					cfg.CopilotDefaultModel, copilotCfg.Model)
+			}
+			executor = agent.NewDefaultCLIExecutorWithCopilot(outputsDir, copilotCfg)
+		} else {
+			executor = agent.NewDefaultCLIExecutor(outputsDir)
+		}
+
 		config := agent.SupervisorConfig{
-			AgentID:     agentID,
-			Role:        role,
-			ProjectRoot: projectRoot,
-			StatePath:   filepath.Join(projectRoot, ".liza", "state.yaml"),
-			LogPath:     filepath.Join(projectRoot, ".liza", "log.yaml"),
-			SpecsDir:    specsDir,
-			CLIName:     cliName,
-			Interactive: interactive,
-			AutoApprove: autoApprove,
-			InitialTask: initialTask,
-			Executor:    agent.NewDefaultCLIExecutor(outputsDir),
-			MaxLoops:    maxLoops,
+			AgentID:      agentID,
+			Role:         role,
+			ProjectRoot:  projectRoot,
+			StatePath:    filepath.Join(projectRoot, ".liza", "state.yaml"),
+			LogPath:      filepath.Join(projectRoot, ".liza", "log.yaml"),
+			SpecsDir:     specsDir,
+			CLIName:      cliName,
+			Interactive:  interactive,
+			AutoApprove:  autoApprove,
+			InitialTask:  initialTask,
+			Executor:     executor,
+			MaxLoops:     maxLoops,
+			CopilotModel: copilotModel,
 		}
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -1575,11 +1613,12 @@ func init() {
 	watchCmd.Flags().Int("interval", 10, "check interval in seconds")
 
 	// Agent command flags
-	agentCmd.Flags().String("cli", "claude", "CLI to use (claude, codex, gemini, mistral)")
+	agentCmd.Flags().String("cli", "claude", "CLI to use (claude, codex, gemini, mistral, kimi, copilot)")
+	agentCmd.Flags().String("model", "", "Copilot model override (only with --cli copilot; e.g. gpt-5-mini, claude-opus-4.6)")
 	agentCmd.Flags().BoolP("interactive", "i", false, "Print prompt location, don't execute CLI")
 	agentCmd.Flags().Bool("log", false, "Save agent output to .liza/agent-outputs/ (incompatible with -i)")
 	agentCmd.Flags().Int("max-loops", 0, "Maximum supervisor loop iterations before self-terminating (0 = unlimited)")
-	agentCmd.Flags().Bool("auto-approve", false, "Skip CLI permission prompts (passes --dangerously-skip-permissions to the underlying CLI)")
+	agentCmd.Flags().Bool("auto-approve", false, "Skip CLI permission prompts (passes --dangerously-skip-permissions / --allow-all-tools to the underlying CLI)")
 
 	// Recover-task command flags
 	recoverTaskCmd.Flags().Bool("force", false, "clean up git artifacts even if task is not in state")

@@ -749,6 +749,13 @@ const (
 	DefaultAuditorMaxWait       = 1800 // 30 minutes
 	DefaultExit42MaxBackoffSec  = 60
 	DefaultExit42RestartLimit   = 5
+
+	// DefaultCopilotModel is the default model for the Copilot CLI backend.
+	// gpt-5-mini is the GPT-5 family mini model available in Copilot CLI.
+	// When Raptor mini becomes available, update this constant.
+	DefaultCopilotModel = "gpt-5-mini"
+	// DefaultCopilotFallbackModel is used when the default model is unavailable.
+	DefaultCopilotFallbackModel = "gpt-4.1"
 )
 
 // Bounds for heartbeat interval validation.
@@ -780,28 +787,34 @@ type Config struct {
 	// PlannerMaxWait is the maximum time a planner agent will wait for work
 	// before exiting. When 0, defaults to DefaultPlannerMaxWait (30 minutes).
 	// The planner will exit earlier if STOPPED mode is detected or context is cancelled.
-	PlannerMaxWait             int            `yaml:"planner_max_wait"`
-	ReviewerPollInterval       int            `yaml:"reviewer_poll_interval"`
-	ReviewerMaxWait            int            `yaml:"reviewer_max_wait"`
-	AuditorPollInterval        int            `yaml:"auditor_poll_interval"`
-	AuditorMaxWait             int            `yaml:"auditor_max_wait"`
-	Exit42RestartThreshold     int            `yaml:"exit42_restart_threshold,omitempty"`
-	Exit42MaxBackoffSeconds    int            `yaml:"exit42_max_backoff_seconds,omitempty"`
-	CrashRetryLimit            int            `yaml:"crash_retry_limit,omitempty"`
-	CrashRetryBaseDelaySec     int            `yaml:"crash_retry_base_delay_seconds,omitempty"`
-	CrashRetryMaxDelaySec      int            `yaml:"crash_retry_max_delay_seconds,omitempty"`
-	IntegrationBranch          string         `yaml:"integration_branch"`
-	EscalationWebhook          *string        `yaml:"escalation_webhook,omitempty"`
-	Mode                       SystemMode     `yaml:"mode,omitempty"`
-	ModeChangedAt              *time.Time     `yaml:"mode_changed_at,omitempty"`
-	ModeChangedBy              *string        `yaml:"mode_changed_by,omitempty"`
-	DiagnosticLogging          bool           `yaml:"diagnostic_logging,omitempty"`
-	MaxTasksPerRun             int            `yaml:"max_tasks_per_run,omitempty"`
-	MaxTasksGenerated          int            `yaml:"max_tasks_generated,omitempty"`
-	MaxAgentIterations         int            `yaml:"max_agent_iterations,omitempty"`
-	MaxRuntimeMinutes          int            `yaml:"max_runtime_minutes,omitempty"`
-	EnforceRequirementRefs     bool           `yaml:"enforce_requirement_refs,omitempty"`
-	EnforceDeduplication       bool           `yaml:"enforce_deduplication,omitempty"`
-	RequireAuditForSprintClose bool           `yaml:"require_audit_for_sprint_close,omitempty"`
-	Extra                      map[string]any `yaml:",inline"`
+	PlannerMaxWait             int        `yaml:"planner_max_wait"`
+	ReviewerPollInterval       int        `yaml:"reviewer_poll_interval"`
+	ReviewerMaxWait            int        `yaml:"reviewer_max_wait"`
+	AuditorPollInterval        int        `yaml:"auditor_poll_interval"`
+	AuditorMaxWait             int        `yaml:"auditor_max_wait"`
+	Exit42RestartThreshold     int        `yaml:"exit42_restart_threshold,omitempty"`
+	Exit42MaxBackoffSeconds    int        `yaml:"exit42_max_backoff_seconds,omitempty"`
+	CrashRetryLimit            int        `yaml:"crash_retry_limit,omitempty"`
+	CrashRetryBaseDelaySec     int        `yaml:"crash_retry_base_delay_seconds,omitempty"`
+	CrashRetryMaxDelaySec      int        `yaml:"crash_retry_max_delay_seconds,omitempty"`
+	IntegrationBranch          string     `yaml:"integration_branch"`
+	EscalationWebhook          *string    `yaml:"escalation_webhook,omitempty"`
+	Mode                       SystemMode `yaml:"mode,omitempty"`
+	ModeChangedAt              *time.Time `yaml:"mode_changed_at,omitempty"`
+	ModeChangedBy              *string    `yaml:"mode_changed_by,omitempty"`
+	DiagnosticLogging          bool       `yaml:"diagnostic_logging,omitempty"`
+	MaxTasksPerRun             int        `yaml:"max_tasks_per_run,omitempty"`
+	MaxTasksGenerated          int        `yaml:"max_tasks_generated,omitempty"`
+	MaxAgentIterations         int        `yaml:"max_agent_iterations,omitempty"`
+	MaxRuntimeMinutes          int        `yaml:"max_runtime_minutes,omitempty"`
+	EnforceRequirementRefs     bool       `yaml:"enforce_requirement_refs,omitempty"`
+	EnforceDeduplication       bool       `yaml:"enforce_deduplication,omitempty"`
+	RequireAuditForSprintClose bool       `yaml:"require_audit_for_sprint_close,omitempty"`
+
+	// Copilot CLI backend configuration
+	CopilotDefaultModel         string `yaml:"copilot_default_model,omitempty"`
+	CopilotFallbackModel        string `yaml:"copilot_fallback_model,omitempty"`
+	CopilotStrictModelSelection bool   `yaml:"copilot_strict_model_selection,omitempty"`
+
+	Extra map[string]any `yaml:",inline"`
 }

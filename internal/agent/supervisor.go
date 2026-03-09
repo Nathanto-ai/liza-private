@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,13 +26,14 @@ type SupervisorConfig struct {
 	StatePath        string
 	LogPath          string
 	SpecsDir         string // For prompt building
-	CLIName          string // "claude", "codex", "gemini", "mistral", "kimi"
+	CLIName          string // "claude", "codex", "gemini", "mistral", "kimi", "copilot"
 	Interactive      bool   // Print prompt location, don't execute
 	AutoApprove      bool   // Skip CLI permission prompts (--dangerously-skip-permissions)
 	InitialTask      string // Optional task ID to resume
 	Executor         CLIExecutor
 	ExecutionTimeout time.Duration // Max time for agent execution before timeout
 	MaxLoops         int           // Max supervisor loop iterations (0 = unlimited, uses budget tracker)
+	CopilotModel     string        // Explicit Copilot model override (empty = use config default)
 }
 
 // crashRetryTracker tracks consecutive crash exits (non-0, non-42) for a given task.
@@ -313,12 +315,18 @@ type CLIExecutor interface {
 
 // DefaultCLIExecutor implements real CLI execution
 type DefaultCLIExecutor struct {
-	outputsDir string // Directory to save agent outputs (if empty, output goes to stdout)
+	outputsDir      string             // Directory to save agent outputs (if empty, output goes to stdout)
+	copilotModelCfg CopilotModelConfig // Resolved Copilot model (only used when cliName is "copilot")
 }
 
 // NewDefaultCLIExecutor creates a new DefaultCLIExecutor with optional output directory
 func NewDefaultCLIExecutor(outputsDir string) *DefaultCLIExecutor {
 	return &DefaultCLIExecutor{outputsDir: outputsDir}
+}
+
+// NewDefaultCLIExecutorWithCopilot creates a DefaultCLIExecutor pre-configured for Copilot model selection.
+func NewDefaultCLIExecutorWithCopilot(outputsDir string, copilotCfg CopilotModelConfig) *DefaultCLIExecutor {
+	return &DefaultCLIExecutor{outputsDir: outputsDir, copilotModelCfg: copilotCfg}
 }
 
 func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentID string, prompt string, projectRoot string, autoApprove bool) (int, error) {
@@ -389,6 +397,28 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 		}
 		cmd = exec.CommandContext(ctx, "kimi", args...)
 		useStdinForPrompt = true
+	case "copilot":
+		// Copilot CLI is invoked via "gh copilot" which wraps the copilot binary.
+		// It supports -p for non-interactive mode, --allow-all-tools for auto-approve,
+		// --model for model selection, and --output-format json for structured output.
+		// MCP config is passed via --additional-mcp-config pointing to .mcp.json.
+		args := []string{"copilot", "-p"}
+		if autoApprove {
+			args = append(args, "--allow-all-tools")
+		}
+		if d.copilotModelCfg.Model != "" {
+			args = append(args, "--model", d.copilotModelCfg.Model)
+		}
+		if d.outputsDir != "" {
+			args = append(args, "--output-format", "json")
+		}
+		// Pass project-level MCP config if it exists
+		mcpConfigPath := filepath.Join(projectRoot, ".mcp.json")
+		if _, err := os.Stat(mcpConfigPath); err == nil {
+			args = append(args, "--additional-mcp-config", "@"+mcpConfigPath)
+		}
+		cmd = exec.CommandContext(ctx, "gh", args...)
+		useStdinForPrompt = true
 	default:
 		return 0, fmt.Errorf("unknown CLI: %s", cliName)
 	}
@@ -456,6 +486,12 @@ func (d *DefaultCLIExecutor) ExecuteInteractive(ctx context.Context, cliName str
 	switch actualCLI {
 	case "codex":
 		cmd = exec.CommandContext(ctx, "codex")
+	case "copilot":
+		args := []string{"copilot"}
+		if d.copilotModelCfg.Model != "" {
+			args = append(args, "--model", d.copilotModelCfg.Model)
+		}
+		cmd = exec.CommandContext(ctx, "gh", args...)
 	default:
 		cmd = exec.CommandContext(ctx, actualCLI)
 	}
