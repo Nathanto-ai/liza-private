@@ -402,7 +402,12 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 		// It supports -p for non-interactive mode, --allow-all-tools for auto-approve,
 		// --model for model selection, and --output-format json for structured output.
 		// MCP config is passed via --additional-mcp-config pointing to .mcp.json.
-		args := []string{"copilot", "-p"}
+		//
+		// Prompt delivery: On Windows, gh.exe may hit the 8191-character cmd.exe
+		// command-line limit when the prompt is passed as a -p argument. To avoid
+		// this, we write the prompt to a temp file and pass a short -p instruction
+		// that references the file, plus pipe the full prompt via stdin as backup.
+		args := []string{"copilot"}
 		if autoApprove {
 			args = append(args, "--allow-all-tools")
 		}
@@ -417,7 +422,23 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 		if _, err := os.Stat(mcpConfigPath); err == nil {
 			args = append(args, "--additional-mcp-config", "@"+mcpConfigPath)
 		}
+		// Write prompt to temp file to avoid Windows command-line length limits.
+		// The copilot agent reads the file via the short -p instruction.
+		promptTmpFile, err := os.CreateTemp("", "liza-copilot-prompt-*.md")
+		if err != nil {
+			return 0, fmt.Errorf("create copilot prompt temp file: %w", err)
+		}
+		promptTmpPath := promptTmpFile.Name()
+		defer os.Remove(promptTmpPath)
+		if _, err := promptTmpFile.WriteString(prompt); err != nil {
+			promptTmpFile.Close()
+			return 0, fmt.Errorf("write copilot prompt temp file: %w", err)
+		}
+		promptTmpFile.Close()
+		// -p with a short instruction to read the full prompt from the temp file.
+		args = append(args, "-p", "Read and follow the instructions in "+promptTmpPath)
 		cmd = exec.CommandContext(ctx, "gh", args...)
+		// Also pipe the prompt via stdin as backup (copilot processes both -p and stdin).
 		useStdinForPrompt = true
 	default:
 		return 0, fmt.Errorf("unknown CLI: %s", cliName)

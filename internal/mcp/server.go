@@ -342,7 +342,8 @@ func (s *Server) registerReadOnlyTools() {
 		Name:        "liza_status",
 		Description: "Get current workspace status summary",
 		InputSchema: protocol.InputSchema{
-			Type: "object",
+			Type:       "object",
+			Properties: map[string]protocol.Property{},
 		},
 	}, s.handleStatus)
 
@@ -367,7 +368,8 @@ func (s *Server) registerReadOnlyTools() {
 		Name:        "liza_version",
 		Description: "Get Liza version information",
 		InputSchema: protocol.InputSchema{
-			Type: "object",
+			Type:       "object",
+			Properties: map[string]protocol.Property{},
 		},
 	}, s.handleVersion)
 }
@@ -433,18 +435,22 @@ func (s *Server) registerMutationTools() {
 				"depends": {
 					Type:        "array",
 					Description: "List of task IDs this task depends on",
+					Items:       &protocol.PropertyItems{Type: "string"},
 				},
 				"requirement_refs": {
 					Type:        "array",
 					Description: "Requirement references (e.g. R1, R2). Required when enforce_requirement_refs is enabled.",
+					Items:       &protocol.PropertyItems{Type: "string"},
 				},
 				"acceptance_criteria": {
 					Type:        "array",
 					Description: "Acceptance criteria references (e.g. AC-1, AC-2). Required for IMPLEMENTING gate.",
+					Items:       &protocol.PropertyItems{Type: "string"},
 				},
 				"verify_commands": {
 					Type:        "array",
 					Description: "Executable verification commands (e.g. pytest tests/test_foo.py). Required for IMPLEMENTING gate.",
+					Items:       &protocol.PropertyItems{Type: "string"},
 				},
 				"error_behavior": {
 					Type:        "string",
@@ -592,6 +598,7 @@ func (s *Server) registerMutationTools() {
 				"questions": {
 					Type:        "array",
 					Description: "1-3 clarifying questions that would unblock if answered",
+					Items:       &protocol.PropertyItems{Type: "string"},
 				},
 			},
 			Required: []string{"task_id", "agent_id", "reason", "questions"},
@@ -645,6 +652,7 @@ func (s *Server) registerMutationTools() {
 				"replacement_ids": {
 					Type:        "array",
 					Description: "List of replacement task IDs",
+					Items:       &protocol.PropertyItems{Type: "string"},
 				},
 				"reason": {
 					Type:        "string",
@@ -780,7 +788,8 @@ func (s *Server) registerComplexOperations() {
 		Name:        "liza_analyze",
 		Description: "Run circuit breaker analysis on task patterns",
 		InputSchema: protocol.InputSchema{
-			Type: "object",
+			Type:       "object",
+			Properties: map[string]protocol.Property{},
 		},
 	}, s.handleAnalyze)
 
@@ -789,7 +798,8 @@ func (s *Server) registerComplexOperations() {
 		Name:        "liza_update_sprint_metrics",
 		Description: "Recompute sprint metrics from current state",
 		InputSchema: protocol.InputSchema{
-			Type: "object",
+			Type:       "object",
+			Properties: map[string]protocol.Property{},
 		},
 	}, s.handleUpdateSprintMetrics)
 
@@ -798,7 +808,8 @@ func (s *Server) registerComplexOperations() {
 		Name:        "liza_sprint_checkpoint",
 		Description: "Create sprint checkpoint for human review. Pauses all agents and generates a sprint summary report.",
 		InputSchema: protocol.InputSchema{
-			Type: "object",
+			Type:       "object",
+			Properties: map[string]protocol.Property{},
 		},
 	}, s.handleSprintCheckpoint)
 
@@ -807,7 +818,8 @@ func (s *Server) registerComplexOperations() {
 		Name:        "liza_clear_stale_review_claims",
 		Description: "Clear expired review leases",
 		InputSchema: protocol.InputSchema{
-			Type: "object",
+			Type:       "object",
+			Properties: map[string]protocol.Property{},
 		},
 	}, s.handleClearStaleReviews)
 
@@ -837,10 +849,12 @@ func (s *Server) registerComplexOperations() {
 				"files_to_modify": {
 					Type:        "array",
 					Description: "List of files that will be modified",
+					Items:       &protocol.PropertyItems{Type: "string"},
 				},
 				"assumptions": {
 					Type:        "array",
 					Description: "Tagged assumptions (optional)",
+					Items:       &protocol.PropertyItems{Type: "string"},
 				},
 				"risks": {
 					Type:        "string",

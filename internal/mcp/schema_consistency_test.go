@@ -573,6 +573,40 @@ func isNil(expr ast.Expr) bool {
 	return ok && ident.Name == "nil"
 }
 
+// TestToolSchemaPropertiesNeverNil ensures all tools have a non-nil Properties map
+// in their InputSchema. The Copilot CLI requires "properties": {} in JSON schema
+// objects, so omitting it causes a 400 error.
+func TestToolSchemaPropertiesNeverNil(t *testing.T) {
+	server := NewServer("/tmp", "/tmp/log.yaml")
+	for _, toolName := range server.ToolNames() {
+		tool, ok := server.GetTool(toolName)
+		if !ok {
+			t.Fatalf("tool %q not found", toolName)
+		}
+		if tool.InputSchema.Properties == nil {
+			t.Errorf("tool %q has nil Properties (must be non-nil for Copilot CLI compatibility)", toolName)
+		}
+	}
+}
+
+// TestToolSchemaArrayPropertiesHaveItems ensures all array-type properties
+// include an Items field. The Copilot CLI requires "items": {"type": ...}
+// on array schemas, or it returns a 400 error.
+func TestToolSchemaArrayPropertiesHaveItems(t *testing.T) {
+	server := NewServer("/tmp", "/tmp/log.yaml")
+	for _, toolName := range server.ToolNames() {
+		tool, ok := server.GetTool(toolName)
+		if !ok {
+			t.Fatalf("tool %q not found", toolName)
+		}
+		for propName, prop := range tool.InputSchema.Properties {
+			if prop.Type == "array" && prop.Items == nil {
+				t.Errorf("tool %q property %q is array but missing Items (required for Copilot CLI compatibility)", toolName, propName)
+			}
+		}
+	}
+}
+
 func mcpSourceDir(t *testing.T) string {
 	t.Helper()
 
