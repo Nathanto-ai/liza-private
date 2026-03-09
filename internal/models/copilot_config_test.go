@@ -10,7 +10,6 @@ func TestCopilotConfigYAMLRoundTrip(t *testing.T) {
 	cfg := Config{
 		IntegrationBranch:           "main",
 		CopilotDefaultModel:         "gpt-5-mini",
-		CopilotFallbackModel:        "gpt-4.1",
 		CopilotStrictModelSelection: true,
 	}
 
@@ -27,9 +26,6 @@ func TestCopilotConfigYAMLRoundTrip(t *testing.T) {
 	if roundTripped.CopilotDefaultModel != "gpt-5-mini" {
 		t.Errorf("CopilotDefaultModel = %q, want %q", roundTripped.CopilotDefaultModel, "gpt-5-mini")
 	}
-	if roundTripped.CopilotFallbackModel != "gpt-4.1" {
-		t.Errorf("CopilotFallbackModel = %q, want %q", roundTripped.CopilotFallbackModel, "gpt-4.1")
-	}
 	if !roundTripped.CopilotStrictModelSelection {
 		t.Error("CopilotStrictModelSelection should be true")
 	}
@@ -38,9 +34,6 @@ func TestCopilotConfigYAMLRoundTrip(t *testing.T) {
 func TestCopilotConfigDefaults(t *testing.T) {
 	if DefaultCopilotModel != "gpt-5-mini" {
 		t.Errorf("DefaultCopilotModel = %q, want %q", DefaultCopilotModel, "gpt-5-mini")
-	}
-	if DefaultCopilotFallbackModel != "gpt-4.1" {
-		t.Errorf("DefaultCopilotFallbackModel = %q, want %q", DefaultCopilotFallbackModel, "gpt-4.1")
 	}
 }
 
@@ -59,9 +52,7 @@ func TestCopilotConfigOmitsEmptyFields(t *testing.T) {
 	if contains(yamlStr, "copilot_default_model") {
 		t.Error("empty copilot_default_model should be omitted from YAML")
 	}
-	if contains(yamlStr, "copilot_fallback_model") {
-		t.Error("empty copilot_fallback_model should be omitted from YAML")
-	}
+	// copilot_fallback_model removed — nothing to check
 	if contains(yamlStr, "copilot_strict_model_selection") {
 		t.Error("false copilot_strict_model_selection should be omitted from YAML")
 	}

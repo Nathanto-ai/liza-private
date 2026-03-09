@@ -102,8 +102,8 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | `require_audit_for_sprint_close` | false | — | — | bool | Require audit pass before closing sprint |
 | `diagnostic_logging` | false | — | — | bool | Enable verbose diagnostic log output |
 | `copilot_default_model` | `gpt-5-mini` | — | — | string | Default model for Copilot CLI |
-| `copilot_fallback_model` | `gpt-4.1` | — | — | string | Fallback model when default unavailable |
 | `copilot_strict_model_selection` | false | — | — | bool | Error on unsupported `--model` instead of fallback |
+| `copilot_strict_model_selection` | false | — | — | bool | If present, enables strict validation of explicit `--model` (validation is always enforced)
 
 ### Agent Execution Timeouts
 
@@ -328,20 +328,18 @@ The `--model` flag is only valid with `--cli copilot`. Model resolution follows 
 2. **`copilot_default_model` config** — set in `.liza/state.yaml` config section
 3. **Built-in default** — `gpt-5-mini`
 
-If the resolved model is not in Copilot CLI's supported list, and `copilot_fallback_model` is configured, the system falls back automatically with a warning.
+If the resolved model is not in Copilot CLI's supported list, the agent will error and refuse to run — the configured model must be one of Copilot's supported models.
 
 ### Configuration Fields
 
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
 | `copilot_default_model` | `gpt-5-mini` | Default Copilot model |
-| `copilot_fallback_model` | `gpt-4.1` | Fallback when default is unavailable |
-| `copilot_strict_model_selection` | `false` | Error on unsupported explicit `--model` instead of falling back |
+| `copilot_strict_model_selection` | `false` | If present, forces strict validation of explicit `--model` (now always validated) |
 
 ```yaml
 config:
   copilot_default_model: gpt-5-mini
-  copilot_fallback_model: gpt-4.1
   copilot_strict_model_selection: false
 ```
 

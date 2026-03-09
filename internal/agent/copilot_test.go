@@ -82,8 +82,7 @@ func TestResolveCopilotModel_EasyConfigChange(t *testing.T) {
 
 func TestResolveCopilotModel_FallbackWhenDefaultUnsupported(t *testing.T) {
 	cfg := models.Config{
-		CopilotDefaultModel:  "raptor-mini", // unsupported
-		CopilotFallbackModel: "gpt-5-mini",  // supported
+		CopilotDefaultModel: "raptor-mini", // unsupported
 	}
 	_, err := ResolveCopilotModel(cfg, "")
 	if err == nil {
@@ -146,8 +145,7 @@ func TestResolveCopilotModel_StrictDefaultOnExplicit(t *testing.T) {
 
 func TestResolveCopilotModel_BothDefaultAndFallbackUnsupported(t *testing.T) {
 	cfg := models.Config{
-		CopilotDefaultModel:  "future-model-a",
-		CopilotFallbackModel: "future-model-b",
+		CopilotDefaultModel: "future-model-a",
 	}
 	_, err := ResolveCopilotModel(cfg, "")
 	if err == nil {

@@ -754,8 +754,6 @@ const (
 	// gpt-5-mini is the GPT-5 family mini model available in Copilot CLI.
 	// When Raptor mini becomes available, update this constant.
 	DefaultCopilotModel = "gpt-5-mini"
-	// DefaultCopilotFallbackModel is used when the default model is unavailable.
-	DefaultCopilotFallbackModel = "gpt-4.1"
 )
 
 // Bounds for heartbeat interval validation.
@@ -813,7 +811,6 @@ type Config struct {
 
 	// Copilot CLI backend configuration
 	CopilotDefaultModel         string `yaml:"copilot_default_model,omitempty"`
-	CopilotFallbackModel        string `yaml:"copilot_fallback_model,omitempty"`
 	CopilotStrictModelSelection bool   `yaml:"copilot_strict_model_selection,omitempty"`
 
 	Extra map[string]any `yaml:",inline"`
