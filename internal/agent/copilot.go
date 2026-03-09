@@ -53,13 +53,11 @@ func IsCopilotModelSupported(model string) bool {
 //  4. If the default is unsupported and no valid fallback exists, return the default
 //     anyway — the Copilot CLI will produce a clear error.
 func ResolveCopilotModel(cfg models.Config, explicitModel string) (CopilotModelConfig, error) {
-	strict := cfg.CopilotStrictModelSelection
-
-	// Case 1: explicit model override
+	// Case 1: explicit model override — always validate.
 	if explicitModel != "" {
-		if !IsCopilotModelSupported(explicitModel) && strict {
+		if !IsCopilotModelSupported(explicitModel) {
 			return CopilotModelConfig{}, fmt.Errorf(
-				"copilot model %q is not supported (strict mode); supported models: %s",
+				"copilot model %q is not supported; supported models: %s",
 				explicitModel, strings.Join(CopilotSupportedModels, ", "))
 		}
 		return CopilotModelConfig{
@@ -68,28 +66,16 @@ func ResolveCopilotModel(cfg models.Config, explicitModel string) (CopilotModelC
 		}, nil
 	}
 
-	// Case 2: use configured default or global default
+	// Case 2: use configured default or global default — validate strictly.
 	defaultModel := cfg.CopilotDefaultModel
 	if defaultModel == "" {
 		defaultModel = models.DefaultCopilotModel
 	}
 
-	if IsCopilotModelSupported(defaultModel) {
-		return CopilotModelConfig{Model: defaultModel}, nil
+	if !IsCopilotModelSupported(defaultModel) {
+		return CopilotModelConfig{}, fmt.Errorf(
+			"configured Copilot default model %q is not supported; supported models: %s",
+			defaultModel, strings.Join(CopilotSupportedModels, ", "))
 	}
-
-	// Case 3: default is unsupported, try fallback
-	fallback := cfg.CopilotFallbackModel
-	if fallback == "" {
-		fallback = models.DefaultCopilotFallbackModel
-	}
-	if fallback != "" && IsCopilotModelSupported(fallback) {
-		return CopilotModelConfig{
-			Model:       fallback,
-			WasFallback: true,
-		}, nil
-	}
-
-	// Case 4: no valid fallback, pass through (Copilot CLI will error)
 	return CopilotModelConfig{Model: defaultModel}, nil
 }

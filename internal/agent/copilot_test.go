@@ -85,15 +85,9 @@ func TestResolveCopilotModel_FallbackWhenDefaultUnsupported(t *testing.T) {
 		CopilotDefaultModel:  "raptor-mini", // unsupported
 		CopilotFallbackModel: "gpt-5-mini",  // supported
 	}
-	result, err := ResolveCopilotModel(cfg, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Model != "gpt-5-mini" {
-		t.Errorf("expected fallback model %q, got %q", "gpt-5-mini", result.Model)
-	}
-	if !result.WasFallback {
-		t.Error("expected WasFallback=true")
+	_, err := ResolveCopilotModel(cfg, "")
+	if err == nil {
+		t.Fatal("expected error when configured default model is unsupported, got nil")
 	}
 }
 
@@ -102,16 +96,9 @@ func TestResolveCopilotModel_FallbackToGlobalDefault(t *testing.T) {
 	cfg := models.Config{
 		CopilotDefaultModel: "raptor-mini", // unsupported, no explicit fallback
 	}
-	result, err := ResolveCopilotModel(cfg, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	globalFallback := models.DefaultCopilotFallbackModel
-	if result.Model != globalFallback {
-		t.Errorf("expected global fallback %q, got %q", globalFallback, result.Model)
-	}
-	if !result.WasFallback {
-		t.Error("expected WasFallback=true when using fallback")
+	_, err := ResolveCopilotModel(cfg, "")
+	if err == nil {
+		t.Fatal("expected error when configured default model is unsupported, got nil")
 	}
 }
 
@@ -143,24 +130,17 @@ func TestResolveCopilotModel_ExplicitUnsupportedNonStrict(t *testing.T) {
 	cfg := models.Config{
 		CopilotStrictModelSelection: false,
 	}
-	result, err := ResolveCopilotModel(cfg, "nonexistent-model")
-	if err != nil {
-		t.Fatalf("unexpected error in non-strict mode: %v", err)
-	}
-	if result.Model != "nonexistent-model" {
-		t.Errorf("expected passthrough model %q, got %q", "nonexistent-model", result.Model)
+	_, err := ResolveCopilotModel(cfg, "nonexistent-model")
+	if err == nil {
+		t.Fatal("expected error for unsupported explicit model")
 	}
 }
 
 func TestResolveCopilotModel_StrictDefaultOnExplicit(t *testing.T) {
-	// Default strict behavior: strict=false means explicit overrides pass through
-	cfg := models.Config{} // strict defaults to false
-	result, err := ResolveCopilotModel(cfg, "some-future-model")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Model != "some-future-model" {
-		t.Errorf("expected passthrough in default (non-strict) mode, got %q", result.Model)
+	cfg := models.Config{}
+	_, err := ResolveCopilotModel(cfg, "some-future-model")
+	if err == nil {
+		t.Fatal("expected error for unsupported explicit model")
 	}
 }
 
@@ -169,13 +149,9 @@ func TestResolveCopilotModel_BothDefaultAndFallbackUnsupported(t *testing.T) {
 		CopilotDefaultModel:  "future-model-a",
 		CopilotFallbackModel: "future-model-b",
 	}
-	result, err := ResolveCopilotModel(cfg, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Falls through to returning the configured default (Copilot CLI will error)
-	if result.Model != "future-model-a" {
-		t.Errorf("expected configured default passthrough %q, got %q", "future-model-a", result.Model)
+	_, err := ResolveCopilotModel(cfg, "")
+	if err == nil {
+		t.Fatal("expected error when configured default is unsupported")
 	}
 }
 
@@ -210,14 +186,14 @@ func TestCopilotModelConfig_Fields(t *testing.T) {
 	// Verify CopilotModelConfig struct has expected fields
 	cfg := CopilotModelConfig{
 		Model:          "gpt-5-mini",
-		WasFallback:    true,
+		WasFallback:    false,
 		ExplicitChoice: false,
 	}
 	if cfg.Model != "gpt-5-mini" {
 		t.Error("Model field not set correctly")
 	}
-	if !cfg.WasFallback {
-		t.Error("WasFallback not set correctly")
+	if cfg.WasFallback {
+		t.Error("WasFallback should be false in new no-fallback semantics")
 	}
 	if cfg.ExplicitChoice {
 		t.Error("ExplicitChoice should be false")
