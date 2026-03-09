@@ -531,12 +531,12 @@ func TestClassifyError(t *testing.T) {
 			wantCode: protocol.ValidationError,
 			wantMsg:  "validation failed: precondition not met",
 		},
-		// Default: internal error
+		// Default: passes through the error message for agent visibility
 		{
 			name:     "generic error",
 			err:      errors.New("something unexpected happened"),
 			wantCode: protocol.InternalError,
-			wantMsg:  "internal error",
+			wantMsg:  "something unexpected happened",
 		},
 	}
 
@@ -556,17 +556,30 @@ func TestClassifyError(t *testing.T) {
 func TestClassifyError_DoesNotLeakInternalDetails(t *testing.T) {
 	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
 
-	sensitiveErrors := []error{
-		errors.New("task not found: secret-task-id-12345"),
-		errors.New("lock timed out on /home/user/.liza/state.yaml"),
-		errors.New("something unexpected at internal/commands/foo.go:42"),
+	// Errors matching known patterns are replaced with sanitized messages
+	sanitizedCases := []struct {
+		err     error
+		wantMsg string
+	}{
+		{errors.New("task not found: secret-task-id-12345"), "resource not found"},
+		{errors.New("lock timed out on /home/user/.liza/state.yaml"), "lock acquisition timed out"},
 	}
 
-	for _, err := range sensitiveErrors {
-		jerr := server.classifyError(err)
-		if jerr.Message == err.Error() {
-			t.Errorf("classifyError leaked raw error: %q", err.Error())
+	for _, tc := range sanitizedCases {
+		jerr := server.classifyError(tc.err)
+		if jerr.Message == tc.err.Error() {
+			t.Errorf("classifyError leaked raw error: %q", tc.err.Error())
 		}
+		if jerr.Message != tc.wantMsg {
+			t.Errorf("classifyError(%q) = %q, want %q", tc.err.Error(), jerr.Message, tc.wantMsg)
+		}
+	}
+
+	// Generic errors are passed through for agent visibility
+	genericErr := errors.New("something unexpected at internal/commands/foo.go:42")
+	jerr := server.classifyError(genericErr)
+	if jerr.Message != genericErr.Error() {
+		t.Errorf("generic error should pass through: got %q, want %q", jerr.Message, genericErr.Error())
 	}
 }
 

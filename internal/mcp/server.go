@@ -248,8 +248,9 @@ func (s *Server) classifyError(err error) *protocol.JSONRPCError {
 		return protocol.NewError(protocol.ValidationError, "validation failed: precondition not met", nil)
 	}
 
-	// Default: internal error without leaking implementation details
-	return protocol.NewError(protocol.InternalError, "internal error", nil)
+	// Default: return the original error message so agents can adapt.
+	// Handler errors are already sanitized via fmt.Errorf wrappers.
+	return protocol.NewError(protocol.InternalError, msg, nil)
 }
 
 // handleNotification processes JSON-RPC notifications (no response sent).
