@@ -109,12 +109,13 @@ func handleApprovedMerges(projectRoot, agentID string, bb *db.Blackboard) error 
 		return err
 	}
 
-	// Find APPROVED tasks where approved_by = agentID and merge_commit = null
+	// Find APPROVED tasks where approved_by = agentID.
+	// Note: MergeCommit may be non-nil from a prior INTEGRATION_FAILED cycle;
+	// Status == APPROVED guarantees the task hasn't been successfully merged.
 	for i := range state.Tasks {
 		task := &state.Tasks[i]
 		if task.Status == models.TaskStatusApproved &&
-			task.ApprovedBy != nil && *task.ApprovedBy == agentID &&
-			task.MergeCommit == nil {
+			task.ApprovedBy != nil && *task.ApprovedBy == agentID {
 
 			GetLogger().Info("Merging approved task", "task_id", task.ID)
 
@@ -168,8 +169,7 @@ func hasPendingMerges(bb *db.Blackboard, agentID string) bool {
 	for i := range state.Tasks {
 		task := &state.Tasks[i]
 		if task.Status == models.TaskStatusApproved &&
-			task.ApprovedBy != nil && *task.ApprovedBy == agentID &&
-			task.MergeCommit == nil {
+			task.ApprovedBy != nil && *task.ApprovedBy == agentID {
 			return true
 		}
 	}

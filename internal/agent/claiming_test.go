@@ -71,7 +71,7 @@ func TestHasPendingMerges(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "approved task with merge_commit set returns false",
+			name: "approved task with stale merge_commit from prior integration failure returns true",
 			tasks: []models.Task{
 				{
 					ID:          "task-1",
@@ -81,7 +81,7 @@ func TestHasPendingMerges(t *testing.T) {
 				},
 			},
 			agentID:  "code-reviewer-1",
-			expected: false,
+			expected: true,
 		},
 		{
 			name: "approved task by different agent returns false",
@@ -110,7 +110,7 @@ func TestHasPendingMerges(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "multiple tasks, one pending returns true",
+			name: "multiple tasks, both approved by this agent returns true",
 			tasks: []models.Task{
 				{
 					ID:          "task-1",

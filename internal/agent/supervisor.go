@@ -753,8 +753,10 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		}
 		GetLogger().Info("Prompt saved", "file", promptFile)
 
-		// Capture auditor baseline BEFORE execution so we can detect progress
-		if config.Role == roles.RuntimeAuditor && auditorPrevFindingCount < 0 {
+		// Capture auditor baseline BEFORE execution so we can detect progress.
+		// Reset on every iteration so that a wait-then-wake cycle (new MERGED
+		// tasks appeared) starts a fresh progress window.
+		if config.Role == roles.RuntimeAuditor {
 			auditorPrevFindingCount = len(state.AuditFindings)
 		}
 

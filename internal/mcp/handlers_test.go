@@ -1791,7 +1791,7 @@ func TestHandleExecCustomCwd(t *testing.T) {
 
 	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
 
-   // Create a marker file so we can verify the cwd was set correctly
+	// Create a marker file so we can verify the cwd was set correctly
 	markerPath := filepath.Join(subDir, "marker.txt")
 	if err := os.WriteFile(markerPath, []byte("found"), 0644); err != nil {
 		t.Fatalf("Failed to write marker file: %v", err)

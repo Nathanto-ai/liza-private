@@ -19,14 +19,14 @@ func CountClaimableTasks(state *State, role string) int {
 }
 
 // CountReviewableTasks counts tasks that are immediately claimable by a reviewer.
-// Only READY_FOR_REVIEW tasks with the "code_reviewer" role in their workflow qualify.
-// REVIEWING tasks with expired leases require ClearStaleReviewClaimsCommand to revert
-// them to READY_FOR_REVIEW first.
+// Uses IsClaimable which checks task type, status, AND dependencies — ensuring the
+// reviewer only wakes when there are tasks it can actually claim. Without the
+// dependency check the reviewer enters a claim-fail loop that burns its iteration
+// budget (see Bug #8).
 func CountReviewableTasks(state *State, role string) int {
 	count := 0
 	for i := range state.Tasks {
-		task := &state.Tasks[i]
-		if task.Status == TaskStatusReadyForReview && task.EffectiveType().HasRole(role) {
+		if state.Tasks[i].IsClaimable(role, state.Tasks) {
 			count++
 		}
 	}
@@ -90,13 +90,19 @@ func GetCoderWorkDiagnostics(state *State) string {
 func GetReviewerWorkDiagnostics(state *State) string {
 	now := time.Now().UTC()
 
-	unassigned := 0
+	claimable := 0
+	blockedByDeps := 0
 	expiredLeases := 0
 	activelyReviewing := 0
 
-	for _, task := range state.Tasks {
+	for i := range state.Tasks {
+		task := &state.Tasks[i]
 		if task.Status == TaskStatusReadyForReview && task.EffectiveType().HasRole(RoleCodeReviewer) {
-			unassigned++
+			if task.IsClaimable(RoleCodeReviewer, state.Tasks) {
+				claimable++
+			} else {
+				blockedByDeps++
+			}
 		}
 		if task.Status == TaskStatusReviewing && task.EffectiveType().HasRole(RoleCodeReviewer) {
 			if task.ReviewLeaseExpires != nil && task.ReviewLeaseExpires.Before(now) {
@@ -107,8 +113,11 @@ func GetReviewerWorkDiagnostics(state *State) string {
 		}
 	}
 
-	if unassigned > 0 {
-		parts := []string{fmt.Sprintf("Found %d reviewable task(s)", unassigned)}
+	if claimable > 0 {
+		parts := []string{fmt.Sprintf("Found %d reviewable task(s)", claimable)}
+		if blockedByDeps > 0 {
+			parts = append(parts, fmt.Sprintf("%d blocked by dependencies", blockedByDeps))
+		}
 		if expiredLeases > 0 {
 			parts = append(parts, fmt.Sprintf("%d with stale leases (pending reclamation)", expiredLeases))
 		}
@@ -116,6 +125,9 @@ func GetReviewerWorkDiagnostics(state *State) string {
 	}
 
 	parts := []string{"No reviewable tasks"}
+	if blockedByDeps > 0 {
+		parts = append(parts, fmt.Sprintf("%d READY_FOR_REVIEW but blocked by dependencies", blockedByDeps))
+	}
 	if expiredLeases > 0 {
 		parts = append(parts, fmt.Sprintf("%d with stale leases (pending reclamation)", expiredLeases))
 	}

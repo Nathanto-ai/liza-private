@@ -146,11 +146,23 @@ func countImmediateDiscoveries(state *models.State) int {
 }
 
 // countUnresolvedReplanFindings counts audit findings classified as REPLAN_REQUIRED
-// that have not been resolved. These indicate the planner must re-evaluate the plan.
+// that have not been resolved and have no linked remediation task.
+// A finding is considered addressed when:
+//   - Resolved is true, OR
+//   - LinkedTaskID is set (planner created a task via add_task with origin_finding_id), OR
+//   - A task exists with OriginFindingID matching the finding ID
 func countUnresolvedReplanFindings(state *models.State) int {
+	// Build set of finding IDs that have a task with matching OriginFindingID
+	taskOrigins := make(map[string]bool)
+	for _, t := range state.Tasks {
+		if t.OriginFindingID != "" {
+			taskOrigins[t.OriginFindingID] = true
+		}
+	}
+
 	count := 0
 	for _, f := range state.AuditFindings {
-		if f.Classification == "REPLAN_REQUIRED" && !f.Resolved {
+		if f.Classification == "REPLAN_REQUIRED" && !f.Resolved && f.LinkedTaskID == "" && !taskOrigins[f.ID] {
 			count++
 		}
 	}

@@ -152,6 +152,28 @@ func TestCountReviewableTasks(t *testing.T) {
 			role: RoleCodeReviewer,
 			want: 2,
 		},
+		{
+			name: "READY_FOR_REVIEW blocked by unsatisfied dependency not counted",
+			state: &State{
+				Tasks: []Task{
+					{ID: "t1", Status: TaskStatusReadyForReview, Type: TaskTypeCoding, DependsOn: []string{"t2"}},
+					{ID: "t2", Status: TaskStatusImplementing, Type: TaskTypeCoding},
+				},
+			},
+			role: RoleCodeReviewer,
+			want: 0,
+		},
+		{
+			name: "READY_FOR_REVIEW with satisfied dependency counted",
+			state: &State{
+				Tasks: []Task{
+					{ID: "t1", Status: TaskStatusReadyForReview, Type: TaskTypeCoding, DependsOn: []string{"t2"}},
+					{ID: "t2", Status: TaskStatusMerged, Type: TaskTypeCoding},
+				},
+			},
+			role: RoleCodeReviewer,
+			want: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -291,6 +313,16 @@ func TestGetReviewerWorkDiagnostics(t *testing.T) {
 				},
 			},
 			wantContains: []string{"No reviewable tasks", "1 actively being reviewed"},
+		},
+		{
+			name: "READY_FOR_REVIEW blocked by dependency reported",
+			state: &State{
+				Tasks: []Task{
+					{ID: "t1", Status: TaskStatusReadyForReview, Type: TaskTypeCoding, DependsOn: []string{"t2"}},
+					{ID: "t2", Status: TaskStatusImplementing, Type: TaskTypeCoding},
+				},
+			},
+			wantContains: []string{"No reviewable tasks", "READY_FOR_REVIEW but blocked by dependencies"},
 		},
 	}
 

@@ -62,6 +62,58 @@ func TestCountUnresolvedReplanFindings(t *testing.T) {
 			t.Errorf("countUnresolvedReplanFindings() = %d, want 0", got)
 		}
 	})
+
+	t.Run("REPLAN_REQUIRED with LinkedTaskID returns 0", func(t *testing.T) {
+		state := testhelpers.CreateValidState()
+		state.Tasks = []models.Task{
+			testhelpers.BuildTaskByStatus("task-1", models.TaskStatusMerged, now),
+		}
+		state.AuditFindings = []models.AuditFinding{
+			{
+				ID:             "f-1",
+				TaskID:         "task-1",
+				Severity:       "HIGH",
+				Type:           "SPEC_MISMATCH",
+				Phase:          "post_merge",
+				Classification: "REPLAN_REQUIRED",
+				Evidence:       "needs replan",
+				Created:        now,
+				Resolved:       false,
+				LinkedTaskID:   "fix-f-1",
+			},
+		}
+
+		got := countUnresolvedReplanFindings(state)
+		if got != 0 {
+			t.Errorf("countUnresolvedReplanFindings() = %d, want 0 (LinkedTaskID set)", got)
+		}
+	})
+
+	t.Run("REPLAN_REQUIRED with task OriginFindingID returns 0", func(t *testing.T) {
+		state := testhelpers.CreateValidState()
+		task1 := testhelpers.BuildTaskByStatus("task-1", models.TaskStatusMerged, now)
+		remediation := testhelpers.BuildTaskByStatus("fix-f-1", models.TaskStatusReady, now)
+		remediation.OriginFindingID = "f-1"
+		state.Tasks = []models.Task{task1, remediation}
+		state.AuditFindings = []models.AuditFinding{
+			{
+				ID:             "f-1",
+				TaskID:         "task-1",
+				Severity:       "HIGH",
+				Type:           "SPEC_MISMATCH",
+				Phase:          "post_merge",
+				Classification: "REPLAN_REQUIRED",
+				Evidence:       "needs replan",
+				Created:        now,
+				Resolved:       false,
+			},
+		}
+
+		got := countUnresolvedReplanFindings(state)
+		if got != 0 {
+			t.Errorf("countUnresolvedReplanFindings() = %d, want 0 (task has OriginFindingID)", got)
+		}
+	})
 }
 
 func TestCountUnresolvedRemediationFindings(t *testing.T) {

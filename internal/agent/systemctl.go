@@ -259,6 +259,25 @@ func verifyPlannerStateChanges(bb *db.Blackboard, stateBefore *models.State) err
 		}
 		logger.Info("Planner handled immediate discoveries", "before", immediateBefore, "after", immediateAfter)
 
+	case WakeTriggerReplanRequired:
+		// AUDIT_REPLAN_REQUIRED: expect unresolved replan findings to decrease
+		// (planner should create tasks with origin_finding_id, which auto-links findings)
+		unresolvedBefore := countUnresolvedReplanFindings(stateBefore)
+		unresolvedAfter := countUnresolvedReplanFindings(stateAfter)
+		if unresolvedAfter >= unresolvedBefore && unresolvedBefore > 0 {
+			return fmt.Errorf("planner completed with AUDIT_REPLAN_REQUIRED trigger but unresolved replan findings didn't decrease (before: %d, after: %d) — ensure tasks are created with origin_finding_id", unresolvedBefore, unresolvedAfter)
+		}
+		logger.Info("Planner addressed replan findings", "before", unresolvedBefore, "after", unresolvedAfter)
+
+	case WakeTriggerRemediationNeeded:
+		// AUDIT_REMEDIATION_NEEDED: expect unresolved remediation findings to decrease
+		unresolvedBefore := countUnresolvedRemediationFindings(stateBefore)
+		unresolvedAfter := countUnresolvedRemediationFindings(stateAfter)
+		if unresolvedAfter >= unresolvedBefore && unresolvedBefore > 0 {
+			return fmt.Errorf("planner completed with AUDIT_REMEDIATION_NEEDED trigger but unresolved remediation findings didn't decrease (before: %d, after: %d) — ensure tasks are created with origin_finding_id", unresolvedBefore, unresolvedAfter)
+		}
+		logger.Info("Planner addressed remediation findings", "before", unresolvedBefore, "after", unresolvedAfter)
+
 	case WakeTriggerSprintComplete:
 		// SPRINT_COMPLETE: expect sprint status to be CHECKPOINT (or COMPLETED)
 		if stateAfter.Sprint.Status != models.SprintStatusCheckpoint && stateAfter.Sprint.Status != models.SprintStatusCompleted {
