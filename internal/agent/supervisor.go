@@ -403,11 +403,16 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 		// --model for model selection, and --output-format json for structured output.
 		// MCP config is passed via --additional-mcp-config pointing to .mcp.json.
 		//
+		// --autopilot enables automatic continuation in prompt mode: without it
+		// the CLI exits as soon as the model produces a text-only response (no
+		// tool calls), which causes many sessions to end after context-reading
+		// without ever writing code.
+		//
 		// Prompt delivery: On Windows, gh.exe may hit the 8191-character cmd.exe
 		// command-line limit when the prompt is passed as a -p argument. To avoid
 		// this, we write the prompt to a temp file and pass a short -p instruction
 		// that references the file, plus pipe the full prompt via stdin as backup.
-		args := []string{"copilot"}
+		args := []string{"copilot", "--autopilot"}
 		if autoApprove {
 			args = append(args, "--allow-all-tools")
 		}
