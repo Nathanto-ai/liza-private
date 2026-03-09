@@ -142,6 +142,25 @@ func InitCommand(description string, specRef string, stdin io.Reader) error {
 		}
 	}
 
+	// Create .github/copilot-instructions.md symlink for Copilot CLI contract loading.
+	// Copilot CLI reads custom instructions from .github/copilot-instructions.md.
+	copilotDir := filepath.Join(lizaPaths.ProjectRoot(), ".github")
+	copilotInstructionsLink := filepath.Join(copilotDir, "copilot-instructions.md")
+	if fi, err := os.Lstat(copilotInstructionsLink); os.IsNotExist(err) {
+		if mkErr := os.MkdirAll(copilotDir, 0755); mkErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create .github directory: %v\n", mkErr)
+		} else if symErr := os.Symlink(contractTarget, copilotInstructionsLink); symErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create .github/copilot-instructions.md symlink: %v\n", symErr)
+		}
+	} else if err == nil {
+		// Already exists — check if it's already the correct symlink.
+		if fi.Mode()&os.ModeSymlink == 0 {
+			fmt.Fprintf(os.Stderr, "Warning: .github/copilot-instructions.md exists but is not a symlink, skipping\n")
+		} else if target, readErr := os.Readlink(copilotInstructionsLink); readErr != nil || target != contractTarget {
+			fmt.Fprintf(os.Stderr, "Warning: .github/copilot-instructions.md exists but points elsewhere, skipping\n")
+		}
+	}
+
 	// Write GUARDRAILS.md template to project root (non-fatal, like claude-settings)
 	if err := embedded.WriteGuardrails(lizaPaths.ProjectRoot()); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to write GUARDRAILS.md: %v\n", err)

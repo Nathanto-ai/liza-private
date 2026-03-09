@@ -7,7 +7,7 @@ A peer-supervised multi-agent coding system (MAS) built on behavioral contracts.
 ## Features
 
 - **Behavioral Contract**: 55+ LLM failure modes mapped to specific countermeasures, operating as an explicit state machine with tiered rules
-- **Multi-Provider**: Supports claude, codex, kimi, mistral, and gemini CLIs
+- **Multi-Provider**: Supports claude, copilot, codex, kimi, mistral, and gemini CLIs
 - **Blackboard Pattern**: All agents read/write to a central `state.yaml` with atomic file locking
 - **Git Worktrees**: Each task gets an isolated worktree for parallel development
 - **Agent Supervisors**: Long-running processes that claim tasks, execute work, and handle failures
@@ -31,7 +31,7 @@ A peer-supervised multi-agent coding system (MAS) built on behavioral contracts.
 
 ## Requirements
 
-- A supported coding agent CLI: Claude Code, Codex, Kimi, Mistral, or Gemini (see [Provider Compatibility](#provider-compatibility))
+- A supported coding agent CLI: Claude Code, GitHub Copilot, Codex, Kimi, Mistral, or Gemini (see [Provider Compatibility](#provider-compatibility))
 - Git 2.38+ (for full worktree support)
 - Go 1.25.5+ (only for building from source — pre-built binaries available via `install.sh`)
 
@@ -314,6 +314,7 @@ The contract is a capability test. It requires meta-cognitive machinery—the ab
 | Provider | Classification | Notes |
 |----------|----------------|-------|
 | Claude Opus 4.x | Fully compatible | Reference provider |
+| GitHub Copilot (GPT-5-mini) | Fully compatible | Via `gh copilot` CLI with configurable model |
 | GPT-5.x-Codex | Fully compatible | Equally capable |
 | Kimi 2.5 | Fully compatible | Responsive to tooling feedback |
 | Mistral Devstral-2 | Partial | Requires explicit activation and supervision |

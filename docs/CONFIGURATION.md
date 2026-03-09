@@ -101,6 +101,9 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | `enforce_deduplication` | false | — | — | bool | Reject duplicate task descriptions |
 | `require_audit_for_sprint_close` | false | — | — | bool | Require audit pass before closing sprint |
 | `diagnostic_logging` | false | — | — | bool | Enable verbose diagnostic log output |
+| `copilot_default_model` | `gpt-5-mini` | — | — | string | Default model for Copilot CLI |
+| `copilot_fallback_model` | `gpt-4.1` | — | — | string | Fallback model when default unavailable |
+| `copilot_strict_model_selection` | false | — | — | bool | Error on unsupported `--model` instead of fallback |
 
 ### Agent Execution Timeouts
 
@@ -221,7 +224,7 @@ config:
 
 ### Auto-Approve (`--auto-approve`)
 
-The `--auto-approve` flag on `liza agent` commands passes `--dangerously-skip-permissions` to the underlying CLI (Claude, Codex, Gemini, etc.), suppressing interactive permission prompts.
+The `--auto-approve` flag on `liza agent` commands passes `--dangerously-skip-permissions` to Claude-compatible CLIs or `--allow-all-tools` to the Copilot CLI, suppressing interactive permission prompts.
 
 **What it controls:** CLI-level permission prompts only (file edits, shell commands, MCP tool calls).
 
@@ -294,10 +297,67 @@ The `--cli` flag on `liza agent` selects which coding agent to invoke:
 | CLI | Default | Notes |
 |-----|---------|-------|
 | `claude` | Yes | Claude Code |
+| `copilot` | No | GitHub Copilot CLI (`gh copilot`), configurable model |
 | `codex` | No | OpenAI Codex CLI |
 | `gemini` | No | Google Gemini CLI |
 | `mistral` | No | Mistral Le Chat CLI |
 | `kimi` | No | Kimi (alias to claude with Kimi-specific env vars) |
+
+## Copilot CLI Configuration
+
+The `copilot` backend uses GitHub Copilot CLI (`gh copilot`) for agent execution with configurable model selection.
+
+### Basic Usage
+
+```bash
+# Use Copilot with default model (gpt-5-mini)
+liza agent coder --agent-id coder-1 --cli copilot
+
+# Use Copilot with specific model
+liza agent coder --agent-id coder-1 --cli copilot --model claude-opus-4.6
+
+# Use Copilot with auto-approve
+liza agent coder --agent-id coder-1 --cli copilot --auto-approve
+```
+
+### Model Selection
+
+The `--model` flag is only valid with `--cli copilot`. Model resolution follows this priority:
+
+1. **Explicit `--model` flag** — used as-is if supported; error if unsupported and strict mode enabled
+2. **`copilot_default_model` config** — set in `.liza/state.yaml` config section
+3. **Built-in default** — `gpt-5-mini`
+
+If the resolved model is not in Copilot CLI's supported list, and `copilot_fallback_model` is configured, the system falls back automatically with a warning.
+
+### Configuration Fields
+
+| Parameter | Default | Purpose |
+|-----------|---------|---------|
+| `copilot_default_model` | `gpt-5-mini` | Default Copilot model |
+| `copilot_fallback_model` | `gpt-4.1` | Fallback when default is unavailable |
+| `copilot_strict_model_selection` | `false` | Error on unsupported explicit `--model` instead of falling back |
+
+```yaml
+config:
+  copilot_default_model: gpt-5-mini
+  copilot_fallback_model: gpt-4.1
+  copilot_strict_model_selection: false
+```
+
+### Supported Models
+
+The full list of models supported by Copilot CLI (as of this writing):
+
+`claude-sonnet-4.6`, `claude-sonnet-4.5`, `claude-haiku-4.5`, `claude-opus-4.6`, `claude-opus-4.6-fast`, `claude-opus-4.5`, `claude-sonnet-4`, `gemini-3-pro-preview`, `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.1-codex-max`, `gpt-5.1-codex`, `gpt-5.1`, `gpt-5.1-codex-mini`, `gpt-5-mini`, `gpt-4.1`
+
+### MCP with Copilot
+
+Copilot CLI automatically loads MCP configuration from `.mcp.json` via `--additional-mcp-config`. The existing `liza init` setup works for Copilot without changes — the same `.mcp.json` that configures Claude Code also configures Copilot.
+
+### Contract Loading
+
+`liza init` creates a `.github/copilot-instructions.md` symlink pointing to `~/.liza/CORE.md`, so Copilot agents receive the same behavioral contract as other providers.
 
 ## Output Logging
 
