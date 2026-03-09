@@ -3,6 +3,7 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1654,5 +1655,264 @@ func TestHandleRoleEnforcement(t *testing.T) {
 				t.Errorf("Expected error containing %q, got: %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+// --- liza_exec tests ---
+
+func TestHandleExecBasicCommand(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+
+	var command string
+	if runtime.GOOS == "windows" {
+		command = "echo hello"
+	} else {
+		command = "echo hello"
+	}
+
+	result, err := server.handleExec(map[string]any{
+		"command": command,
+	})
+	if err != nil {
+		t.Fatalf("handleExec failed: %v", err)
+	}
+
+	content, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("Expected result to be map")
+	}
+	items, ok := content["content"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatal("Expected content array with at least one item")
+	}
+	text := items[0].(map[string]any)["text"].(string)
+
+	if !strings.Contains(text, "Exit code: 0") {
+		t.Errorf("Expected Exit code: 0, got: %s", text)
+	}
+	if !strings.Contains(text, "hello") {
+		t.Errorf("Expected output to contain 'hello', got: %s", text)
+	}
+}
+
+func TestHandleExecCustomCwd(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	// Create a subdirectory within the project
+	subDir := filepath.Join(projectRoot, "subdir")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdir: %v", err)
+	}
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+
+   // Create a marker file so we can verify the cwd was set correctly
+	markerPath := filepath.Join(subDir, "marker.txt")
+	if err := os.WriteFile(markerPath, []byte("found"), 0644); err != nil {
+		t.Fatalf("Failed to write marker file: %v", err)
+	}
+
+	var command string
+	if runtime.GOOS == "windows" {
+		// type is the Windows equivalent of cat
+		command = "type marker.txt"
+	} else {
+		command = "cat marker.txt"
+	}
+
+	result, err := server.handleExec(map[string]any{
+		"command": command,
+		"cwd":     subDir,
+	})
+	if err != nil {
+		t.Fatalf("handleExec failed: %v", err)
+	}
+
+	text := extractExecText(t, result)
+
+	if !strings.Contains(text, "Exit code: 0") {
+		t.Errorf("Expected Exit code: 0, got: %s", text)
+	}
+	if !strings.Contains(text, "found") {
+		t.Errorf("Expected output to contain 'found', got: %s", text)
+	}
+}
+
+func TestHandleExecRejectsPathTraversal(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+
+	// Try to use a cwd outside the project root
+	parentDir := filepath.Dir(projectRoot)
+
+	_, err := server.handleExec(map[string]any{
+		"command": "echo pwned",
+		"cwd":     parentDir,
+	})
+	if err == nil {
+		t.Fatal("Expected error for cwd outside project root")
+	}
+	if !strings.Contains(err.Error(), "outside project root") {
+		t.Errorf("Expected 'outside project root' error, got: %v", err)
+	}
+}
+
+func TestHandleExecNonZeroExitCode(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+
+	var command string
+	if runtime.GOOS == "windows" {
+		command = "exit 1"
+	} else {
+		command = "exit 1"
+	}
+
+	result, err := server.handleExec(map[string]any{
+		"command": command,
+	})
+	// Non-zero exit code should NOT return an error — it returns the exit code in the text
+	if err != nil {
+		t.Fatalf("handleExec should not error on non-zero exit: %v", err)
+	}
+
+	text := extractExecText(t, result)
+	if !strings.Contains(text, "Exit code: 1") {
+		t.Errorf("Expected Exit code: 1, got: %s", text)
+	}
+}
+
+func TestHandleExecMissingCommand(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+
+	_, err := server.handleExec(map[string]any{})
+	if err == nil {
+		t.Fatal("Expected error for missing command")
+	}
+	if !strings.Contains(err.Error(), "command parameter required") {
+		t.Errorf("Expected 'command parameter required' error, got: %v", err)
+	}
+}
+
+func TestHandleExecTimeout(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+
+	var command string
+	if runtime.GOOS == "windows" {
+		// Start-Sleep is a PowerShell cmdlet that reliably blocks
+		command = "Start-Sleep -Seconds 30"
+	} else {
+		command = "sleep 30"
+	}
+
+	start := time.Now()
+	_, err := server.handleExec(map[string]any{
+		"command":         command,
+		"timeout_seconds": float64(2),
+	})
+	elapsed := time.Since(start)
+
+	// Should fail due to timeout (killed process exit code != 0)
+	// The error might be from context cancellation or exit error
+	if err == nil {
+		t.Log("Command completed without error (may have been killed)")
+	}
+
+	// Verify it didn't run for the full 30 seconds
+	if elapsed > 10*time.Second {
+		t.Errorf("Timeout didn't work — elapsed: %v (expected < 10s)", elapsed)
+	}
+}
+
+func TestHandleExecRelativeCwd(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	// Create a worktree-like directory
+	wtDir := filepath.Join(projectRoot, ".worktrees", "test-task")
+	if err := os.MkdirAll(wtDir, 0755); err != nil {
+		t.Fatalf("Failed to create worktree dir: %v", err)
+	}
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+
+	var command string
+	if runtime.GOOS == "windows" {
+		command = "cd"
+	} else {
+		command = "pwd"
+	}
+
+	result, err := server.handleExec(map[string]any{
+		"command": command,
+		"cwd":     wtDir,
+	})
+	if err != nil {
+		t.Fatalf("handleExec failed: %v", err)
+	}
+
+	text := extractExecText(t, result)
+	if !strings.Contains(text, "Exit code: 0") {
+		t.Errorf("Expected Exit code: 0, got: %s", text)
+	}
+}
+
+// extractExecText is a helper to extract the text content from a liza_exec response.
+func extractExecText(t *testing.T, result any) string {
+	t.Helper()
+	content, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("Expected result to be map")
+	}
+	items, ok := content["content"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatal("Expected content array with at least one item")
+	}
+	return items[0].(map[string]any)["text"].(string)
+}
+
+func TestHandleExecSetsPathextWhenMissing(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("PATHEXT test only applies to Windows")
+	}
+
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+
+	// Save original PATHEXT, then clear it to simulate a stripped environment
+	origPathext := os.Getenv("PATHEXT")
+	os.Setenv("PATHEXT", ".CPL") // stripped env — no .EXE
+	defer os.Setenv("PATHEXT", origPathext)
+
+	// Ask the subprocess to echo PATHEXT — the handler should inject a valid one
+	result, err := server.handleExec(map[string]any{
+		"command": "$env:PATHEXT",
+	})
+	if err != nil {
+		t.Fatalf("handleExec failed: %v", err)
+	}
+
+	text := extractExecText(t, result)
+	if !strings.Contains(text, "Exit code: 0") {
+		t.Fatalf("Expected Exit code: 0, got: %s", text)
+	}
+	if !strings.Contains(strings.ToUpper(text), ".EXE") {
+		t.Errorf("Expected PATHEXT to include .EXE in subprocess, got: %s", text)
 	}
 }

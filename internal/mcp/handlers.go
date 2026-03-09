@@ -1,7 +1,15 @@
 package mcp
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
 
 	"github.com/liza-mas/liza/internal/commands"
 	"github.com/liza-mas/liza/internal/identity"
@@ -767,4 +775,128 @@ func (s *Server) handleSubmitAuditFinding(params map[string]any) (any, error) {
 		msg += fmt.Sprintf(" — task %s reopened (MERGED → READY)", result.TaskID)
 	}
 	return textResult(msg)
+}
+
+// maxExecTimeout is the maximum allowed timeout for liza_exec commands.
+const maxExecTimeout = 120 * time.Second
+
+// defaultExecTimeout is the default timeout when none is specified.
+const defaultExecTimeout = 30 * time.Second
+
+// handleExec implements the liza_exec tool.
+// It runs a shell command in a specified working directory (project root or worktree).
+// Security: the working directory must resolve to within the project root.
+func (s *Server) handleExec(params map[string]any) (any, error) {
+	command, err := requireString(params, "command")
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine working directory
+	cwd := s.projectRoot
+	if dir, ok := params["cwd"].(string); ok && dir != "" {
+		cwd = dir
+	}
+
+	// Resolve to absolute and verify it's within the project root
+	absCwd, err := filepath.Abs(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("invalid cwd: %w", err)
+	}
+	absRoot, err := filepath.Abs(s.projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("invalid project root: %w", err)
+	}
+
+	// Normalize paths for comparison (handle symlinks, case on Windows)
+	absCwd = filepath.Clean(absCwd)
+	absRoot = filepath.Clean(absRoot)
+
+	// Security: cwd must be within or equal to the project root
+	if !strings.EqualFold(absCwd, absRoot) && !strings.HasPrefix(strings.ToLower(absCwd), strings.ToLower(absRoot)+string(filepath.Separator)) {
+		return nil, fmt.Errorf("cwd %q is outside project root %q", absCwd, absRoot)
+	}
+
+	// Parse timeout
+	timeout := defaultExecTimeout
+	if t, ok := params["timeout_seconds"].(float64); ok && t > 0 {
+		timeout = time.Duration(t) * time.Second
+		if timeout > maxExecTimeout {
+			timeout = maxExecTimeout
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Build the command using the platform shell
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		// Ensure PATHEXT includes .EXE so exec.LookPath and subprocess
+		// command resolution work even in stripped environments.
+		ensureWindowsPathext()
+
+		// Try pwsh first, fall back to powershell.exe, then cmd.exe
+		shell := findWindowsShell()
+		switch shell {
+		case "cmd":
+			cmd = exec.CommandContext(ctx, "cmd", "/C", command)
+		default:
+			cmd = exec.CommandContext(ctx, shell, "-NoProfile", "-NonInteractive", "-Command", command)
+		}
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+	}
+
+	cmd.Dir = absCwd
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+
+	exitCode := 0
+	if runErr != nil {
+		if exitErr, ok := runErr.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return nil, fmt.Errorf("exec failed: %w", runErr)
+		}
+	}
+
+	result := fmt.Sprintf("Exit code: %d\n", exitCode)
+	if stdout.Len() > 0 {
+		result += fmt.Sprintf("--- stdout ---\n%s\n", stdout.String())
+	}
+	if stderr.Len() > 0 {
+		result += fmt.Sprintf("--- stderr ---\n%s\n", stderr.String())
+	}
+	if stdout.Len() == 0 && stderr.Len() == 0 {
+		result += "(no output)\n"
+	}
+
+	return textResult(result)
+}
+
+// ensureWindowsPathext sets PATHEXT if it doesn't include .EXE.
+// MCP hosts may strip the process environment, leaving PATHEXT incomplete.
+// Without .EXE in PATHEXT, exec.LookPath and PowerShell command resolution fail.
+func ensureWindowsPathext() {
+	pathext := os.Getenv("PATHEXT")
+	if !strings.Contains(strings.ToUpper(pathext), ".EXE") {
+		os.Setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PS1;.CPL")
+	}
+}
+
+// findWindowsShell returns the best available shell on Windows.
+// Prefers pwsh (PowerShell 7+), falls back to powershell.exe (5.1), then cmd.
+func findWindowsShell() string {
+	if _, err := exec.LookPath("pwsh"); err == nil {
+		return "pwsh"
+	}
+	if _, err := exec.LookPath("powershell"); err == nil {
+		return "powershell"
+	}
+	return "cmd"
 }

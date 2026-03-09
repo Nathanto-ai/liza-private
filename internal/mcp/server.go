@@ -893,4 +893,29 @@ func (s *Server) registerComplexOperations() {
 			Required: []string{"agent_id", "reason"},
 		},
 	}, s.handleDeleteAgent)
+
+	// liza_exec tool — execute shell commands within the project
+	s.registerTool(protocol.Tool{
+		Name:        "liza_exec",
+		Description: "Execute a shell command within the project root or a worktree directory. Use this to run git, pytest, python, build tools, etc. The working directory must be within the project root.",
+		InputSchema: protocol.InputSchema{
+			Type: "object",
+			Properties: map[string]protocol.Property{
+				"command": {
+					Type:        "string",
+					Description: "The shell command to execute (e.g., 'python -m pytest -q', 'git status', 'git diff HEAD')",
+				},
+				"cwd": {
+					Type:        "string",
+					Description: "Working directory for the command. Must be within the project root. Defaults to the project root. Use a worktree path like .worktrees/<task-id> for task-specific commands.",
+				},
+				"timeout_seconds": {
+					Type:        "number",
+					Description: "Command timeout in seconds (default: 30, max: 120)",
+					Default:     30,
+				},
+			},
+			Required: []string{"command"},
+		},
+	}, s.handleExec)
 }
