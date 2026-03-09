@@ -317,6 +317,7 @@ type CLIExecutor interface {
 type DefaultCLIExecutor struct {
 	outputsDir      string             // Directory to save agent outputs (if empty, output goes to stdout)
 	copilotModelCfg CopilotModelConfig // Resolved Copilot model (only used when cliName is "copilot")
+	role            string             // Agent role passed via LIZA_ROLE env var to liza-mcp
 }
 
 // NewDefaultCLIExecutor creates a new DefaultCLIExecutor with optional output directory
@@ -327,6 +328,12 @@ func NewDefaultCLIExecutor(outputsDir string) *DefaultCLIExecutor {
 // NewDefaultCLIExecutorWithCopilot creates a DefaultCLIExecutor pre-configured for Copilot model selection.
 func NewDefaultCLIExecutorWithCopilot(outputsDir string, copilotCfg CopilotModelConfig) *DefaultCLIExecutor {
 	return &DefaultCLIExecutor{outputsDir: outputsDir, copilotModelCfg: copilotCfg}
+}
+
+// SetRole sets the agent role that will be passed to liza-mcp via the
+// LIZA_ROLE environment variable for role-based tool filtering.
+func (d *DefaultCLIExecutor) SetRole(role string) {
+	d.role = role
 }
 
 func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentID string, prompt string, projectRoot string, autoApprove bool) (int, error) {
@@ -451,6 +458,13 @@ func (d *DefaultCLIExecutor) Execute(ctx context.Context, cliName string, agentI
 
 	// Set working directory to project root so claude can find .mcp.json and .claude/settings.json
 	cmd.Dir = projectRoot
+
+	// Pass agent role to liza-mcp via environment variable for role-based
+	// tool filtering. The MCP server reads LIZA_ROLE and only exposes tools
+	// that the role is allowed to use.
+	if d.role != "" {
+		cmd.Env = append(os.Environ(), "LIZA_ROLE="+d.role)
+	}
 
 	// Pipe prompt via stdin for Claude-compatible CLIs to avoid command-line
 	// length limits.  strings.NewReader delivers EOF after the prompt so the
@@ -596,14 +610,6 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 	budget := runtime.NewBudgetTrackerFromConfig(state.Config)
 	anomaly := runtime.NewAnomalyDetector()
 	var iterationHistory []runtime.IterationRecord
-
-	// Auditor stale-target tracker: detects when the auditor keeps targeting the
-	// same task without making progress (e.g., CLI can't submit findings via MCP).
-	// After maxAuditorStaleRuns consecutive no-progress runs on the same target set,
-	// the supervisor exits to prevent infinite loops.
-	const maxAuditorStaleRuns = 3
-	auditorPrevFindingCount := -1 // -1 = not yet initialized
-	auditorStaleRuns := 0
 
 	for {
 		// Check context cancellation (signal received)
@@ -753,13 +759,6 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		}
 		GetLogger().Info("Prompt saved", "file", promptFile)
 
-		// Capture auditor baseline BEFORE execution so we can detect progress.
-		// Reset on every iteration so that a wait-then-wake cycle (new MERGED
-		// tasks appeared) starts a fresh progress window.
-		if config.Role == roles.RuntimeAuditor {
-			auditorPrevFindingCount = len(state.AuditFindings)
-		}
-
 		// Execute agent
 		exitCode, err := executeAgent(ctx, config, prompt)
 		if err != nil {
@@ -803,36 +802,6 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 					GetLogger().Warn("Planner state verification failed",
 						"error", err,
 						"hint", "Agent may not have executed required commands - check prompt file")
-				}
-			}
-
-			// Auditor stale-target detection: if the auditor exits 0 but
-			// didn't add any new findings, it's stuck (e.g., CLI can't call
-			// MCP submit_audit_finding). After maxAuditorStaleRuns consecutive
-			// no-progress iterations, exit to prevent infinite looping.
-			if config.Role == roles.RuntimeAuditor {
-				currentState, readErr := bb.Read()
-				if readErr == nil {
-					currentFindingCount := len(currentState.AuditFindings)
-					if currentFindingCount > auditorPrevFindingCount {
-						// Progress made — reset tracker
-						auditorStaleRuns = 0
-						auditorPrevFindingCount = currentFindingCount
-					} else {
-						auditorStaleRuns++
-						GetLogger().Warn("Auditor completed without adding findings",
-							"stale_runs", auditorStaleRuns,
-							"max_stale_runs", maxAuditorStaleRuns,
-							"finding_count", currentFindingCount,
-							"agent_id", config.AgentID)
-						if auditorStaleRuns >= maxAuditorStaleRuns {
-							GetLogger().Error("Auditor stale-target limit reached — agent cannot submit findings, exiting",
-								"stale_runs", auditorStaleRuns,
-								"finding_count", currentFindingCount,
-								"agent_id", config.AgentID)
-							return nil
-						}
-					}
 				}
 			}
 

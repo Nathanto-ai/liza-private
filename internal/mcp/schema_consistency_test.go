@@ -84,7 +84,7 @@ func TestToolSchemaRequiredMatchesHandlerExtraction(t *testing.T) {
 		t.Fatalf("parse handler parameter extraction: %v", err)
 	}
 
-	server := NewServer("/tmp", "/tmp/log.yaml")
+	server := NewServer("/tmp", "/tmp/log.yaml", "")
 	toolNames := server.ToolNames()
 	sort.Strings(toolNames)
 
@@ -577,7 +577,7 @@ func isNil(expr ast.Expr) bool {
 // in their InputSchema. The Copilot CLI requires "properties": {} in JSON schema
 // objects, so omitting it causes a 400 error.
 func TestToolSchemaPropertiesNeverNil(t *testing.T) {
-	server := NewServer("/tmp", "/tmp/log.yaml")
+	server := NewServer("/tmp", "/tmp/log.yaml", "")
 	for _, toolName := range server.ToolNames() {
 		tool, ok := server.GetTool(toolName)
 		if !ok {
@@ -593,7 +593,7 @@ func TestToolSchemaPropertiesNeverNil(t *testing.T) {
 // include an Items field. The Copilot CLI requires "items": {"type": ...}
 // on array schemas, or it returns a 400 error.
 func TestToolSchemaArrayPropertiesHaveItems(t *testing.T) {
-	server := NewServer("/tmp", "/tmp/log.yaml")
+	server := NewServer("/tmp", "/tmp/log.yaml", "")
 	for _, toolName := range server.ToolNames() {
 		tool, ok := server.GetTool(toolName)
 		if !ok {

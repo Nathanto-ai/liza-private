@@ -19,7 +19,7 @@ import (
 // causing auditor agents to be unable to submit findings via MCP.
 func TestAllMCPToolsHaveClaudePermissions(t *testing.T) {
 	// Get all tools registered by the MCP server
-	server := NewServer("/tmp/test-project", "/tmp/test-project/.liza/log.yaml")
+	server := NewServer("/tmp/test-project", "/tmp/test-project/.liza/log.yaml", "")
 	tools := server.ListTools()
 
 	if len(tools) == 0 {

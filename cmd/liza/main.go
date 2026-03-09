@@ -1146,7 +1146,7 @@ Example:
 		}
 
 		// Resolve Copilot model configuration if using copilot backend
-		var executor agent.CLIExecutor
+		var executor *agent.DefaultCLIExecutor
 		if cliName == "copilot" {
 			statePath := filepath.Join(projectRoot, ".liza", "state.yaml")
 			cfg := models.Config{}
@@ -1167,6 +1167,7 @@ Example:
 		} else {
 			executor = agent.NewDefaultCLIExecutor(outputsDir)
 		}
+		executor.SetRole(role)
 
 		config := agent.SupervisorConfig{
 			AgentID:      agentID,

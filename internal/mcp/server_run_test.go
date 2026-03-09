@@ -47,7 +47,7 @@ func (t *fakeRunTransport) WriteError(_ json.RawMessage, code int, message strin
 }
 
 func TestServerRun_ParseErrorWriteSuccessContinues(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 	transport := &fakeRunTransport{
 		readResults: []runReadResult{
 			{err: errors.New("failed to parse JSON-RPC request: invalid character")},
@@ -72,7 +72,7 @@ func TestServerRun_ParseErrorWriteSuccessContinues(t *testing.T) {
 }
 
 func TestServerRun_ParseErrorWriteFailureIsTerminal(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 	writeErr := errors.New("broken pipe")
 	transport := &fakeRunTransport{
 		readResults: []runReadResult{

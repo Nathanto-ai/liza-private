@@ -177,7 +177,9 @@ func hasPendingMerges(bb *db.Blackboard, agentID string) bool {
 }
 
 // logTaskSubmissionIfCompleted checks if a claimed task was submitted for review
-// and logs this transition for visibility in agent logs
+// and logs this transition for visibility in agent logs.
+// If the task is still IMPLEMENTING at exit, releases the claim so another coder
+// can pick it up (the worktree is preserved for the next coder to resume from).
 func logTaskSubmissionIfCompleted(bb *db.Blackboard, taskID, agentID string) error {
 	state, err := bb.Read()
 	if err != nil {
@@ -203,12 +205,29 @@ func logTaskSubmissionIfCompleted(bb *db.Blackboard, taskID, agentID string) err
 			return nil
 		}
 
-		// If task is still IMPLEMENTING, agent may have exited without completing
+		// If task is still IMPLEMENTING, release the claim so another coder
+		// can pick it up. The worktree is preserved for the next coder.
 		if task.Status == models.TaskStatusImplementing {
-			GetLogger().Warn("Agent exited with task still claimed",
+			GetLogger().Warn("Agent exited with task still IMPLEMENTING, releasing claim",
 				"task_id", task.ID,
-				"agent_id", agentID,
-				"hint", "Agent may have been interrupted or encountered an issue")
+				"agent_id", agentID)
+
+			releaseErr := bb.Modify(func(s *models.State) error {
+				t := s.FindTask(taskID)
+				if t == nil || t.Status != models.TaskStatusImplementing {
+					return nil // task gone or status changed, nothing to do
+				}
+				if err := t.Transition(models.TaskStatusReady); err != nil {
+					return err
+				}
+				t.AssignedTo = nil
+				t.LeaseExpires = nil
+				return nil
+			})
+			if releaseErr != nil {
+				GetLogger().Warn("Failed to release stale coding claim on exit",
+					"task_id", task.ID, "error", releaseErr)
+			}
 			return nil
 		}
 

@@ -239,6 +239,12 @@ func waitForWorkPolling(
 // or tasks already claimed by this agent that are still IMPLEMENTING
 // (i.e. the previous CLI invocation exited without completing the task).
 func waitForCoderWork(ctx context.Context, bb *db.Blackboard, projectRoot, agentID string, pollInterval, maxWait time.Duration) (bool, error) {
+	if cleared, err := ops.ClearStaleCodingClaims(projectRoot); err != nil {
+		GetLogger().Warn("Failed to clear stale coding claims before coder wait", "error", err)
+	} else if cleared > 0 {
+		GetLogger().Info("Cleared stale coding claims before coder wait", "count", cleared)
+	}
+
 	return waitForWorkEventDriven(ctx, bb, projectRoot, pollInterval, maxWait,
 		func(s *models.State) (bool, string) {
 			claimable := models.CountClaimableTasks(s, models.RoleCoder)

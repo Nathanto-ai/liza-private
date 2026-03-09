@@ -21,7 +21,7 @@ func reqID(id int) json.RawMessage {
 }
 
 func TestHandleRequest_Routing(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	tests := []struct {
 		name      string
@@ -83,7 +83,7 @@ func TestHandleRequest_Routing(t *testing.T) {
 }
 
 func TestHandleRequest_Initialize(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	req := &protocol.JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -115,7 +115,7 @@ func TestHandleRequest_Initialize(t *testing.T) {
 }
 
 func TestHandleRequest_ToolCall_InvalidParams(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	tests := []struct {
 		name   string
@@ -152,7 +152,7 @@ func TestHandleRequest_ToolCall_InvalidParams(t *testing.T) {
 }
 
 func TestHandleRequest_ToolCall_MissingName(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	req := &protocol.JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -171,7 +171,7 @@ func TestHandleRequest_ToolCall_MissingName(t *testing.T) {
 }
 
 func TestHandleRequest_ToolCall_UnknownTool(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	req := &protocol.JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -193,7 +193,7 @@ func TestHandleRequest_ToolCall_UnknownTool(t *testing.T) {
 }
 
 func TestHandleRequest_ToolCall_Success(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	// Register a test handler
 	server.registerTool(protocol.Tool{
@@ -229,7 +229,7 @@ func TestHandleRequest_ToolCall_Success(t *testing.T) {
 }
 
 func TestHandleRequest_ToolCall_NilArguments(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	var receivedArgs map[string]any
 	server.registerTool(protocol.Tool{
@@ -286,7 +286,7 @@ func TestHandleRequest_ToolCall_AddTaskPostWriteValidationFailure(t *testing.T) 
 		t.Fatalf("failed to seed invalid state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 	req := &protocol.JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      reqID(1),
@@ -315,7 +315,7 @@ func TestHandleRequest_ToolCall_AddTaskPostWriteValidationFailure(t *testing.T) 
 }
 
 func TestHandleRequest_ToolCall_HandlerError(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	server.registerTool(protocol.Tool{
 		Name:        "failing_tool",
@@ -345,7 +345,7 @@ func TestHandleRequest_ToolCall_HandlerError(t *testing.T) {
 }
 
 func TestHandleRequest_ResourceRead_InvalidParams(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	tests := []struct {
 		name   string
@@ -386,7 +386,7 @@ func TestHandleRequest_ResourceRead_InvalidParams(t *testing.T) {
 }
 
 func TestHandleRequest_PreservesRequestID(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	id := reqID(42)
 	req := &protocol.JSONRPCRequest{
@@ -402,7 +402,7 @@ func TestHandleRequest_PreservesRequestID(t *testing.T) {
 }
 
 func TestClassifyError(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	tests := []struct {
 		name     string
@@ -554,7 +554,7 @@ func TestClassifyError(t *testing.T) {
 }
 
 func TestClassifyError_DoesNotLeakInternalDetails(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	// Errors matching known patterns are replaced with sanitized messages
 	sanitizedCases := []struct {
@@ -584,7 +584,7 @@ func TestClassifyError_DoesNotLeakInternalDetails(t *testing.T) {
 }
 
 func TestClassifyError_PreconditionErrorExposesReason(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	reason := "task t1: code tasks must include test files — TDD is mandatory"
 	precondErr := &ops.PreconditionError{Reason: reason}
@@ -604,7 +604,7 @@ func TestClassifyError_PreconditionErrorExposesReason(t *testing.T) {
 }
 
 func TestHandleNotification(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	// Should not panic for known notifications
 	knownNotifications := []string{

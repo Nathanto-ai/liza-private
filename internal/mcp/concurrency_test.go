@@ -17,7 +17,7 @@ func TestConcurrentClaimSameTask_MCPvsMCP(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -89,7 +89,7 @@ func TestConcurrentAddTask(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	var wg sync.WaitGroup
 	numTasks := 5
@@ -148,7 +148,7 @@ func TestConcurrentAddTaskSameID(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -229,7 +229,7 @@ func TestLockAcquisitionTime(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	// Measure time for a simple read operation
 	start := time.Now()
@@ -255,7 +255,7 @@ func TestNoDeadlocks(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	// Add more tasks for this test
 	statePath := filepath.Join(projectRoot, ".liza", "state.yaml")

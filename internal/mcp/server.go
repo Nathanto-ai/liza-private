@@ -12,12 +12,14 @@ import (
 	"github.com/liza-mas/liza/internal/mcp/protocol"
 	"github.com/liza-mas/liza/internal/ops"
 	"github.com/liza-mas/liza/internal/paths"
+	"github.com/liza-mas/liza/internal/roles"
 )
 
 // Server represents the MCP server
 type Server struct {
 	projectRoot string
 	logPath     string
+	role        string // Agent role for tool filtering (empty = all tools)
 	bb          *db.Blackboard
 	tools       map[string]protocol.Tool
 	resources   map[string]protocol.Resource
@@ -33,11 +35,14 @@ type runTransport interface {
 	WriteError(id json.RawMessage, code int, message string, data any) error
 }
 
-// NewServer creates a new MCP server
-func NewServer(projectRoot, logPath string) *Server {
+// NewServer creates a new MCP server.
+// If role is non-empty, only tools allowed for that role are registered.
+// If role is empty, all tools are registered (backwards compatible).
+func NewServer(projectRoot, logPath, role string) *Server {
 	s := &Server{
 		projectRoot: projectRoot,
 		logPath:     logPath,
+		role:        role,
 		bb:          db.For(paths.New(projectRoot).StatePath()),
 		tools:       make(map[string]protocol.Tool),
 		resources:   make(map[string]protocol.Resource),
@@ -46,8 +51,14 @@ func NewServer(projectRoot, logPath string) *Server {
 
 	s.registerReadOnlyTools()
 	s.registerReadOnlyResources()
-	s.registerMutationTools()
-	s.registerComplexOperations()
+
+	if role == "" {
+		// No role filter: register everything (CLI / manual usage)
+		s.registerMutationTools()
+		s.registerComplexOperations()
+	} else {
+		s.registerToolsForRole(role)
+	}
 
 	return s
 }
@@ -919,4 +930,79 @@ func (s *Server) registerComplexOperations() {
 			Required: []string{"command"},
 		},
 	}, s.handleExec)
+}
+
+// registerToolsForRole selectively registers only the mutation and complex
+// operation tools that the given agent role is allowed to use. Read-only
+// tools are always registered by the caller before this method.
+func (s *Server) registerToolsForRole(role string) {
+	// Register ALL mutation and complex tools into a temporary server so we
+	// can cherry-pick by name. This avoids duplicating the tool schema
+	// definitions while keeping the allowlist explicit.
+	full := &Server{
+		projectRoot: s.projectRoot,
+		logPath:     s.logPath,
+		bb:          s.bb,
+		tools:       make(map[string]protocol.Tool),
+		resources:   make(map[string]protocol.Resource),
+		handlers:    make(map[string]ToolHandler),
+	}
+	full.registerMutationTools()
+	full.registerComplexOperations()
+
+	allowed := roleAllowedTools(role)
+	for name := range allowed {
+		if tool, ok := full.tools[name]; ok {
+			s.tools[name] = tool
+			s.handlers[name] = full.handlers[name]
+		}
+	}
+}
+
+// roleAllowedTools returns the set of mutation/complex tool names that the
+// given role is permitted to call. Read-only tools are not listed here
+// because they are always registered for every role.
+func roleAllowedTools(role string) map[string]bool {
+	switch role {
+	case roles.RuntimePlanner:
+		return map[string]bool{
+			"liza_add_task":              true,
+			"liza_supersede_task":        true,
+			"liza_update_sprint_metrics": true,
+			"liza_sprint_checkpoint":     true,
+			"liza_delete_agent":          true,
+			"liza_analyze":               true,
+		}
+	case roles.RuntimeCoder:
+		return map[string]bool{
+			"liza_claim_task":         true,
+			"liza_submit_for_review":  true,
+			"liza_handoff":            true,
+			"liza_mark_blocked":       true,
+			"liza_release_claim":      true,
+			"liza_wt_create":          true,
+			"liza_wt_delete":          true,
+			"liza_write_checkpoint":   true,
+			"liza_exec":               true,
+		}
+	case roles.RuntimeCodeReviewer:
+		return map[string]bool{
+			"liza_submit_verdict":            true,
+			"liza_wt_merge":                  true,
+			"liza_clear_stale_review_claims": true,
+			"liza_release_claim":             true,
+			"liza_mark_blocked":              true,
+			"liza_wt_create":                 true,
+			"liza_wt_delete":                 true,
+		}
+	case roles.RuntimeAuditor:
+		return map[string]bool{
+			"liza_submit_audit_finding": true,
+			"liza_analyze":              true,
+			"liza_mark_blocked":         true,
+		}
+	default:
+		// Unknown role: no mutation tools
+		return map[string]bool{}
+	}
 }
