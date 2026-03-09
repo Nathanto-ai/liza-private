@@ -52,7 +52,6 @@ func TestCopilotConfigOmitsEmptyFields(t *testing.T) {
 	if contains(yamlStr, "copilot_default_model") {
 		t.Error("empty copilot_default_model should be omitted from YAML")
 	}
-	// copilot_fallback_model removed — nothing to check
 	if contains(yamlStr, "copilot_strict_model_selection") {
 		t.Error("false copilot_strict_model_selection should be omitted from YAML")
 	}
