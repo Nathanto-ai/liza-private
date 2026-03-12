@@ -102,8 +102,6 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | `require_audit_for_sprint_close` | false | — | — | bool | Require audit pass before closing sprint |
 | `diagnostic_logging` | false | — | — | bool | Enable verbose diagnostic log output |
 | `copilot_default_model` | `gpt-5-mini` | — | — | string | Default model for Copilot CLI |
-| `copilot_strict_model_selection` | false | — | — | bool | Error on unsupported `--model` instead of fallback |
-| `copilot_strict_model_selection` | false | — | — | bool | If present, enables strict validation of explicit `--model` (validation is always enforced)
 
 ### Agent Execution Timeouts
 
@@ -335,12 +333,10 @@ If the resolved model is not in Copilot CLI's supported list, the agent will err
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
 | `copilot_default_model` | `gpt-5-mini` | Default Copilot model |
-| `copilot_strict_model_selection` | `false` | If present, forces strict validation of explicit `--model` (now always validated) |
 
 ```yaml
 config:
   copilot_default_model: gpt-5-mini
-  copilot_strict_model_selection: false
 ```
 
 ### Supported Models

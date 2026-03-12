@@ -290,6 +290,25 @@ All MCP tools must be listed in `.claude/settings.json` permissions for Claude C
 
 See [Architecture Overview](../specs/architecture/overview.md) for detailed component descriptions.
 
+### Role Enforcement
+
+Both CLI commands and MCP tools enforce role-based access control. Mutation commands validate the calling agent's role against an allowlist before executing.
+
+**Role → Allowed Commands:**
+
+| Role | Commands |
+|------|----------|
+| Coder | `claim-task`, `submit-for-review`, `handoff`, `write-checkpoint`, `wt-create`, `wt-delete`, `mark-blocked`, `release-claim`, `liza_exec` |
+| Code Reviewer | `submit-verdict`, `wt-merge`, `claim-review`, `clear-stale-review-claims`, `wt-create`, `wt-delete`, `mark-blocked`, `release-claim` |
+| Planner | `add-task`, `supersede-task`, `sprint-checkpoint`, `delete-agent`, `update-sprint-metrics`, `analyze` |
+| Auditor | `submit-audit-finding`, `analyze`, `mark-blocked` |
+
+**Behavior:**
+- CLI commands extract the agent role from the `--agent-id` flag (e.g., `coder-1` → coder role)
+- MCP tools are filtered per-role — non-permitted tools are not registered
+- MCP handlers additionally call `requireRole()` as defense-in-depth
+- Empty agent ID (human/manual usage) bypasses the CLI check for backward compatibility
+
 ### Configuring Claude Code (MCP)
 
 Liza integrates with Claude Code through the Model Context Protocol (MCP). `liza init` creates the configuration automatically:
