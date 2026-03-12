@@ -14,9 +14,6 @@ Progress: {{.Sprint.TasksDone}}/{{.Sprint.TasksTotal}} tasks complete
 Mode: {{.Config.Mode}}
 {{- if and (eq .Config.Mode "PAUSED") .Config.PausedBy}}
 Paused By: {{deref .Config.PausedBy}}
-{{- if .Config.PauseReason}}
-Reason: {{deref .Config.PauseReason}}
-{{- end}}
 {{- end}}
 
 {{.TasksSection}}{{.AgentsSection}}=== PLANNER ===

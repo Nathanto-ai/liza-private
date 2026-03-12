@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -49,9 +50,8 @@ type sprintStatus struct {
 }
 
 type configStatus struct {
-	Mode        string  `json:"mode"`
-	PausedBy    *string `json:"paused_by,omitempty"`
-	PauseReason *string `json:"pause_reason,omitempty"`
+	Mode     string  `json:"mode"`
+	PausedBy *string `json:"paused_by,omitempty"`
 }
 
 type taskStatus struct {
@@ -133,12 +133,21 @@ func buildStatusData(state *models.State, detailed bool) statusData {
 	}
 
 	// Populate sprint information
+	// Compute TasksDone live from task states instead of relying on the
+	// persisted sprint metric (which is only updated when update-sprint-metrics
+	// is called and can go stale).
+	tasksDone := 0
+	for _, task := range state.Tasks {
+		if task.Status.IsComplete() {
+			tasksDone++
+		}
+	}
 	data.Sprint = sprintStatus{
 		ID:         state.Sprint.ID,
 		Number:     state.Sprint.Number,
 		Status:     string(state.Sprint.Status),
 		StartTime:  state.Sprint.Timeline.Started.Format(time.RFC3339),
-		TasksDone:  state.Sprint.Metrics.TasksDone,
+		TasksDone:  tasksDone,
 		TasksTotal: len(state.Tasks),
 	}
 
@@ -273,6 +282,11 @@ func buildAgentStatuses(state *models.State) []agentStatus {
 		agents = append(agents, as)
 	}
 
+	// Sort agents by ID for deterministic output between invocations.
+	slices.SortFunc(agents, func(a, b agentStatus) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+
 	return agents
 }
 
@@ -403,25 +417,33 @@ func buildWorkQueuesStatus(state *models.State, claimable, reviewable int) workQ
 	}
 }
 
-// getProcessStatus checks if a process is running
+// getProcessStatus checks if a process is running.
+// On Windows, Signal(0) is not supported, so we open the process handle
+// via FindProcess and attempt a non-destructive signal to confirm liveness.
 func getProcessStatus(pid int) string {
 	if pid == 0 {
 		return "unknown"
 	}
 
-	// Try to find the process
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return "not found"
 	}
 
-	// Send signal 0 to check if process exists
-	err = process.Signal(syscall.Signal(0))
-	if err == nil {
+	if runtime.GOOS == "windows" {
+		// On Windows, FindProcess always succeeds. Attempt Signal(0)
+		// which returns an error for non-existent processes.
+		if err := process.Signal(syscall.Signal(0)); err != nil {
+			return "stopped"
+		}
 		return "running"
 	}
 
-	return "stopped"
+	// On Unix, Signal(0) checks process existence without sending a signal.
+	if err := process.Signal(syscall.Signal(0)); err != nil {
+		return "stopped"
+	}
+	return "running"
 }
 
 func writeTasksSection(b *strings.Builder, tasks taskStatus) {
