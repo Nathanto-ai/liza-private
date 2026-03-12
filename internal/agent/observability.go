@@ -80,9 +80,9 @@ func (se *supervisorEmitter) emitVerifyRun(taskID string, passed bool, commandCo
 		WithData("commands", fmt.Sprintf("%d", commandCount)))
 }
 
-// emitAgentExited emits a TASK_STATUS_CHANGED event when an agent exits.
+// emitAgentExited emits an AGENT_EXITED event when an agent exits cleanly.
 func (se *supervisorEmitter) emitAgentExited(agentID string, exitCode int) {
-	se.Emit(observability.NewEvent(observability.EventTaskStatusChanged, "Agent exited").
+	se.Emit(observability.NewEvent(observability.EventAgentExited, "Agent exited").
 		WithAgent(agentID).
 		WithData("exit_code", fmt.Sprintf("%d", exitCode)))
 }
@@ -103,10 +103,27 @@ func (se *supervisorEmitter) emitAnomalyDetected(agentID string, a runtime.Anoma
 		WithData("severity", a.Severity))
 }
 
-// emitCrashRetry emits a TASK_STATUS_CHANGED event when a crash retry occurs.
+// emitCrashRetry emits an AGENT_CRASHED event when a crash retry occurs.
 func (se *supervisorEmitter) emitCrashRetry(agentID, taskID string, crashes int) {
-	se.Emit(observability.NewEvent(observability.EventTaskStatusChanged, "Crash retry").
+	se.Emit(observability.NewEvent(observability.EventAgentCrashed, "Crash retry").
 		WithAgent(agentID).
 		WithTask(taskID).
 		WithData("consecutive_crashes", fmt.Sprintf("%d", crashes)))
+}
+
+// emitAgentAborted emits an AGENT_ABORTED event for exit code 42 (graceful abort).
+func (se *supervisorEmitter) emitAgentAborted(agentID, taskID string, restartCount int) {
+	se.Emit(observability.NewEvent(observability.EventAgentAborted, "Agent aborted gracefully").
+		WithAgent(agentID).
+		WithTask(taskID).
+		WithData("restart_count", fmt.Sprintf("%d", restartCount)))
+}
+
+// emitCrashLimitExceeded emits an AGENT_CRASHED event when crash retry limit is exceeded.
+func (se *supervisorEmitter) emitCrashLimitExceeded(agentID, taskID string, crashes, limit int) {
+	se.Emit(observability.NewEvent(observability.EventAgentCrashed, "Crash retry limit exceeded").
+		WithAgent(agentID).
+		WithTask(taskID).
+		WithData("consecutive_crashes", fmt.Sprintf("%d", crashes)).
+		WithData("limit", fmt.Sprintf("%d", limit)))
 }

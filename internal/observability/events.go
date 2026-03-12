@@ -21,6 +21,9 @@ const (
 	EventVerifyRun         EventType = "VERIFY_RUN"
 	EventAgentClaimed      EventType = "AGENT_CLAIMED"
 	EventAgentReleased     EventType = "AGENT_RELEASED"
+	EventAgentExited       EventType = "AGENT_EXITED"
+	EventAgentCrashed      EventType = "AGENT_CRASHED"
+	EventAgentAborted      EventType = "AGENT_ABORTED"
 	EventRunSummary        EventType = "RUN_SUMMARY"
 )
 
