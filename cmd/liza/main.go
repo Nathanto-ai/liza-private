@@ -234,12 +234,8 @@ The worktree and branch are automatically cleaned up after a successful merge.`,
 			return err
 		}
 
-		role, err := identity.ExtractRole(agentID)
-		if err != nil {
+		if err := commands.RequireRole(agentID, roles.RuntimeCodeReviewer); err != nil {
 			return err
-		}
-		if role != roles.RuntimeCodeReviewer {
-			return fmt.Errorf("wt-merge requires code-reviewer agent (got: %s)", role)
 		}
 
 		projectRoot, err := requireProjectRoot()
@@ -271,6 +267,10 @@ This pattern prevents TOCTOU races in multi-agent scenarios.`,
 		taskID := args[0]
 		agentID := args[1]
 
+		if err := commands.RequireRole(agentID, roles.RuntimeCoder); err != nil {
+			return err
+		}
+
 		projectRoot, err := requireProjectRoot()
 		if err != nil {
 			return err
@@ -290,6 +290,10 @@ The task is selected automatically based on priority ordering.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentID := args[0]
+
+		if err := commands.RequireRole(agentID, roles.RuntimeCodeReviewer); err != nil {
+			return err
+		}
 
 		projectRoot, err := requireProjectRoot()
 		if err != nil {
@@ -318,6 +322,10 @@ Requirements:
 
 		agentID, err := requireAgentID(cmd)
 		if err != nil {
+			return err
+		}
+
+		if err := commands.RequireRole(agentID, roles.RuntimeCoder); err != nil {
 			return err
 		}
 
@@ -385,6 +393,10 @@ Updates:
 			return err
 		}
 
+		if err := commands.RequireRole(agentID, roles.RuntimeCoder); err != nil {
+			return err
+		}
+
 		projectRoot, err := requireProjectRoot()
 		if err != nil {
 			return err
@@ -417,6 +429,10 @@ Updates:
 
 		agentID, err := requireAgentID(cmd)
 		if err != nil {
+			return err
+		}
+
+		if err := commands.RequireRole(agentID, roles.RuntimeCoder); err != nil {
 			return err
 		}
 
@@ -465,6 +481,10 @@ For REJECTED verdict:
 
 		agentID, err := requireAgentID(cmd)
 		if err != nil {
+			return err
+		}
+
+		if err := commands.RequireRole(agentID, roles.RuntimeCodeReviewer); err != nil {
 			return err
 		}
 
@@ -580,6 +600,10 @@ Effects:
 
 		agentID, err := requireAgentID(cmd)
 		if err != nil {
+			return err
+		}
+
+		if err := commands.RequireRole(agentID, roles.RuntimeCoder, roles.RuntimeCodeReviewer, roles.RuntimeAuditor); err != nil {
 			return err
 		}
 
@@ -1159,10 +1183,6 @@ Example:
 			if resolveErr != nil {
 				return resolveErr
 			}
-			if copilotCfg.WasFallback {
-				fmt.Fprintf(os.Stderr, "Note: Copilot default model %q unavailable, using fallback %q\n",
-					cfg.CopilotDefaultModel, copilotCfg.Model)
-			}
 			executor = agent.NewDefaultCLIExecutorWithCopilot(outputsDir, copilotCfg)
 		} else {
 			executor = agent.NewDefaultCLIExecutor(outputsDir)
@@ -1307,6 +1327,10 @@ Example YAML file format:
 			Required:     false,
 		})
 
+		if err := commands.RequireRole(plannerID, roles.RuntimePlanner); err != nil {
+			return err
+		}
+
 		return commands.AddTaskCommand(statePath, logPath, input, plannerID)
 	},
 }
@@ -1344,6 +1368,10 @@ Example:
 			DefaultValue: "planner-1",
 			Required:     false,
 		})
+
+		if err := commands.RequireRole(agentID, roles.RuntimePlanner); err != nil {
+			return err
+		}
 
 		projectRoot, err := requireProjectRoot()
 		if err != nil {
