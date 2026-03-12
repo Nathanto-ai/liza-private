@@ -261,6 +261,10 @@ func TestCLI_InitAndStatus(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping CLI binary test in short mode")
 	}
+	homeDir, _ := os.UserHomeDir()
+	if _, err := os.Stat(filepath.Join(homeDir, ".liza")); os.IsNotExist(err) {
+		t.Skip("skipping: ~/.liza not found (run 'liza setup' first)")
+	}
 
 	bin := buildLiza(t)
 
@@ -311,6 +315,10 @@ func TestCLI_InitAndStatus(t *testing.T) {
 func TestCLI_ValidateAfterInit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping CLI binary test in short mode")
+	}
+	homeDir, _ := os.UserHomeDir()
+	if _, err := os.Stat(filepath.Join(homeDir, ".liza")); os.IsNotExist(err) {
+		t.Skip("skipping: ~/.liza not found (run 'liza setup' first)")
 	}
 
 	bin := buildLiza(t)

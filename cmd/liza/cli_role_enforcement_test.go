@@ -123,9 +123,8 @@ func TestCLIRoleEnforcement_HandoffRejectsNonCoder(t *testing.T) {
 	})
 
 	err := executeRootCommand(t, projectRoot,
-		"handoff", "task-role-6",
+		"handoff", "task-role-6", "handoff summary", "next action",
 		"--agent-id", "code-reviewer-1",
-		"--next-agent", "coder-2",
 	)
 	if err == nil {
 		t.Fatal("expected error for reviewer calling handoff, got nil")
@@ -219,6 +218,7 @@ func TestCLIRoleEnforcement_MarkBlockedRejectsPlanner(t *testing.T) {
 		"mark-blocked", "task-block-p",
 		"--agent-id", "planner-1",
 		"--reason", "test block",
+		"--questions", "what is wrong?",
 	)
 	if err == nil {
 		t.Fatal("expected error for planner calling mark-blocked, got nil")

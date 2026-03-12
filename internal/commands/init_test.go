@@ -21,6 +21,24 @@ func setupGlobalLiza(t *testing.T) string {
 	return testhelpers.SetupGlobalLiza(t)
 }
 
+// skipIfSymlinkUnsupported skips the test if symlinks cannot be created
+// (e.g. on Windows without Developer Mode or elevated privileges).
+func skipIfSymlinkUnsupported(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return
+	}
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "target")
+	if err := os.WriteFile(target, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(tmp, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("skipping: symlinks not supported on this Windows environment: %v", err)
+	}
+}
+
 func TestInitCommand(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -361,6 +379,7 @@ func verifyInitialization(t *testing.T, tmpDir, description, specRef string) {
 }
 
 func TestInitCommand_CreatesContractSymlinks(t *testing.T) {
+	skipIfSymlinkUnsupported(t)
 	// Create temporary git repo
 	gitDir := setupGitRepo(t)
 	defer os.RemoveAll(gitDir)
@@ -403,6 +422,7 @@ func TestInitCommand_CreatesContractSymlinks(t *testing.T) {
 }
 
 func TestInitCommand_SkipsCorrectSymlinks(t *testing.T) {
+	skipIfSymlinkUnsupported(t)
 	gitDir := setupGitRepo(t)
 	defer os.RemoveAll(gitDir)
 
@@ -443,6 +463,7 @@ func TestInitCommand_SkipsCorrectSymlinks(t *testing.T) {
 }
 
 func TestInitCommand_DoesNotOverwriteWithoutConsent(t *testing.T) {
+	skipIfSymlinkUnsupported(t)
 	gitDir := setupGitRepo(t)
 	defer os.RemoveAll(gitDir)
 
