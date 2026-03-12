@@ -703,6 +703,14 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 			return err
 		}
 		if !hasWork {
+			// Auditor stays idle and re-waits: it should not exit after a
+			// normal no-work timeout. Other long-lived agents (planner)
+			// already re-enter via wake triggers; auditor should behave
+			// the same way—only exiting on shutdown/abort/budget/anomaly.
+			if config.Role == roles.RuntimeAuditor {
+				GetLogger().Info("Auditor: no work available, returning to idle")
+				continue
+			}
 			GetLogger().Info("No work available, supervisor exiting")
 			return nil
 		}
@@ -836,6 +844,7 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 				"task_id", restartTaskID,
 				"restart_count", outcome.RestartCount,
 				"delay_seconds", int(outcome.Delay/time.Second))
+			events.emitAgentAborted(config.AgentID, restartTaskID, outcome.RestartCount)
 			time.Sleep(outcome.Delay)
 			iterRec.Status = "EXIT42"
 		default:
@@ -850,6 +859,7 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 					"limit", crashTracker.limit,
 					"task_id", taskID,
 					"agent_id", config.AgentID)
+				events.emitCrashLimitExceeded(config.AgentID, taskID, crashes, crashTracker.limit)
 				blockTaskOnCrashLimit(bb, taskID, config.AgentID, crashes, crashTracker.limit)
 				crashTracker.reset()
 			} else {
@@ -858,6 +868,7 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 					"consecutive_crashes", crashes,
 					"delay", delay,
 					"agent_id", config.AgentID)
+				events.emitCrashRetry(config.AgentID, taskID, crashes)
 				time.Sleep(delay)
 			}
 
