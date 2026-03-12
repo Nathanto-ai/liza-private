@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -88,18 +87,6 @@ func (fl *FileLock) acquireLockWithPID() (*flock.Flock, error) {
 	}
 
 	return lock, nil
-}
-
-func isProcessAlive(pid int) bool {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-
-	// Send signal 0 to check if process exists (Unix-specific).
-	// On Unix, this checks process existence without actually sending a signal.
-	err = process.Signal(syscall.Signal(0))
-	return err == nil
 }
 
 func (fl *FileLock) isLockStale() (bool, int) {

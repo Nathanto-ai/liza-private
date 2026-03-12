@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/liza-mas/liza/internal/db"
@@ -15,6 +16,10 @@ const (
 	DefaultHeartbeatInterval = time.Duration(models.DefaultHeartbeatIntervalSec) * time.Second
 	// DefaultLeaseDuration is the default lease duration
 	DefaultLeaseDuration = time.Duration(models.DefaultLeaseDurationSeconds) * time.Second
+
+	// evictionThreshold is the number of consecutive NotFoundErrors before
+	// the heartbeat considers the agent evicted and returns a fatal error.
+	evictionThreshold = 3
 )
 
 // HeartbeatConfig contains configuration for the heartbeat mechanism
@@ -61,12 +66,15 @@ func NewHeartbeat(config HeartbeatConfig) *Heartbeat {
 	}
 }
 
-// Start begins the heartbeat loop, extending the agent's lease periodically
-// Returns when the context is cancelled or an unrecoverable error occurs
+// Start begins the heartbeat loop, extending the agent's lease periodically.
+// Returns when the context is cancelled, or when the agent's registration is
+// missing from state for evictionThreshold consecutive beats (zombie detection).
 func (h *Heartbeat) Start(ctx context.Context) error {
 	logger := GetLogger()
 	ticker := time.NewTicker(h.interval)
 	defer ticker.Stop()
+
+	consecutiveMissing := 0
 
 	for {
 		select {
@@ -74,9 +82,22 @@ func (h *Heartbeat) Start(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			if err := h.beat(); err != nil {
-				// Log error but continue (per bash: "|| true")
-				// Supervisors can detect stale agents via watch command
+				if errors.IsNotFound(err) {
+					consecutiveMissing++
+					logger.Warn("Agent registration missing from state",
+						"agent_id", h.agentID,
+						"consecutive", consecutiveMissing,
+						"threshold", evictionThreshold)
+					if consecutiveMissing >= evictionThreshold {
+						return fmt.Errorf("agent %s evicted: registration missing for %d consecutive heartbeats", h.agentID, consecutiveMissing)
+					}
+					continue
+				}
+				// Log non-eviction errors but continue
 				logger.Error("Heartbeat update failed", "error", err, "agent_id", h.agentID)
+				consecutiveMissing = 0
+			} else {
+				consecutiveMissing = 0
 			}
 		}
 	}

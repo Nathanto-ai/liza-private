@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,17 +169,23 @@ func TestHeartbeatWithInvalidAgent(t *testing.T) {
 		LeaseDuration: 30 * time.Minute,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	hb := NewHeartbeat(config)
 
-	// Start heartbeat - should handle missing agent gracefully
+	// Start heartbeat - should detect agent eviction after consecutive missing beats
 	err := hb.Start(ctx)
 
-	// Should complete without error (errors are logged but not returned)
-	if err != nil && err != context.DeadlineExceeded {
-		t.Errorf("Start() unexpected error = %v", err)
+	// Should return an eviction error (not context timeout)
+	if err == nil {
+		t.Error("Start() should return eviction error for missing agent")
+	}
+	if err == context.DeadlineExceeded {
+		t.Error("Start() should return eviction error before context deadline")
+	}
+	if err != nil && !strings.Contains(err.Error(), "evicted") {
+		t.Errorf("Start() error should mention eviction, got: %v", err)
 	}
 }
 
