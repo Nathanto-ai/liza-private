@@ -810,8 +810,7 @@ type Config struct {
 	RequireAuditForSprintClose bool       `yaml:"require_audit_for_sprint_close,omitempty"`
 
 	// Copilot CLI backend configuration
-	CopilotDefaultModel         string `yaml:"copilot_default_model,omitempty"`
-	CopilotStrictModelSelection bool   `yaml:"copilot_strict_model_selection,omitempty"`
+	CopilotDefaultModel string `yaml:"copilot_default_model,omitempty"`
 
 	Extra map[string]any `yaml:",inline"`
 }

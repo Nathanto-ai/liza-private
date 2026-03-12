@@ -41,9 +41,6 @@ func TestResolveCopilotModel_DefaultModel(t *testing.T) {
 	if result.Model != models.DefaultCopilotModel {
 		t.Errorf("expected default model %q, got %q", models.DefaultCopilotModel, result.Model)
 	}
-	if result.WasFallback {
-		t.Error("expected WasFallback=false for default model")
-	}
 	if result.ExplicitChoice {
 		t.Error("expected ExplicitChoice=false for default model")
 	}
@@ -59,9 +56,6 @@ func TestResolveCopilotModel_ConfiguredDefault(t *testing.T) {
 	}
 	if result.Model != "claude-opus-4.6" {
 		t.Errorf("expected configured default %q, got %q", "claude-opus-4.6", result.Model)
-	}
-	if result.WasFallback {
-		t.Error("expected WasFallback=false")
 	}
 }
 
@@ -80,7 +74,7 @@ func TestResolveCopilotModel_EasyConfigChange(t *testing.T) {
 	}
 }
 
-func TestResolveCopilotModel_FallbackWhenDefaultUnsupported(t *testing.T) {
+func TestResolveCopilotModel_RejectsUnsupportedDefault(t *testing.T) {
 	cfg := models.Config{
 		CopilotDefaultModel: "raptor-mini", // unsupported
 	}
@@ -90,10 +84,10 @@ func TestResolveCopilotModel_FallbackWhenDefaultUnsupported(t *testing.T) {
 	}
 }
 
-func TestResolveCopilotModel_FallbackToGlobalDefault(t *testing.T) {
-	// When configured default is unsupported and no explicit fallback, uses global fallback
+func TestResolveCopilotModel_NoFallbackBehavior(t *testing.T) {
+	// When configured default is unsupported, system must error — not fall back
 	cfg := models.Config{
-		CopilotDefaultModel: "raptor-mini", // unsupported, no explicit fallback
+		CopilotDefaultModel: "raptor-mini", // unsupported, no fallback exists
 	}
 	_, err := ResolveCopilotModel(cfg, "")
 	if err == nil {
@@ -115,20 +109,17 @@ func TestResolveCopilotModel_ExplicitOverrideSupported(t *testing.T) {
 	}
 }
 
-func TestResolveCopilotModel_ExplicitUnsupportedStrict(t *testing.T) {
+func TestResolveCopilotModel_ExplicitUnsupportedRejected(t *testing.T) {
 	cfg := models.Config{
-		CopilotStrictModelSelection: true,
 	}
 	_, err := ResolveCopilotModel(cfg, "nonexistent-model")
 	if err == nil {
-		t.Fatal("expected error for unsupported model in strict mode")
+		t.Fatal("expected error for unsupported model")
 	}
 }
 
-func TestResolveCopilotModel_ExplicitUnsupportedNonStrict(t *testing.T) {
-	cfg := models.Config{
-		CopilotStrictModelSelection: false,
-	}
+func TestResolveCopilotModel_ExplicitUnsupportedAlwaysRejected(t *testing.T) {
+	cfg := models.Config{}
 	_, err := ResolveCopilotModel(cfg, "nonexistent-model")
 	if err == nil {
 		t.Fatal("expected error for unsupported explicit model")
@@ -153,7 +144,7 @@ func TestResolveCopilotModel_BothDefaultAndFallbackUnsupported(t *testing.T) {
 	}
 }
 
-func TestResolveCopilotModel_RaptorMiniPreferredDefault(t *testing.T) {
+func TestResolveCopilotModel_RaptorMiniNotYetSupported(t *testing.T) {
 	// When Raptor mini is not in the supported list, the system should still
 	// use the global default (gpt-5-mini) and not error.
 	cfg := models.Config{}
@@ -184,16 +175,49 @@ func TestCopilotModelConfig_Fields(t *testing.T) {
 	// Verify CopilotModelConfig struct has expected fields
 	cfg := CopilotModelConfig{
 		Model:          "gpt-5-mini",
-		WasFallback:    false,
 		ExplicitChoice: false,
 	}
 	if cfg.Model != "gpt-5-mini" {
 		t.Error("Model field not set correctly")
 	}
-	if cfg.WasFallback {
-		t.Error("WasFallback should be false in new no-fallback semantics")
-	}
 	if cfg.ExplicitChoice {
 		t.Error("ExplicitChoice should be false")
+	}
+}
+
+// TestCopilotModelConfig_NoWasFallbackField is a regression test ensuring
+// the WasFallback field is not reintroduced. The field was dead code —
+// always false — and misleadingly suggested fallback behavior existed.
+func TestCopilotModelConfig_NoWasFallbackField(t *testing.T) {
+	t.Parallel()
+	// CopilotModelConfig should only have Model and ExplicitChoice.
+	// If someone adds WasFallback back, this won't compile:
+	// cfg := CopilotModelConfig{WasFallback: true}  <-- would fail
+	cfg := CopilotModelConfig{Model: "gpt-5-mini", ExplicitChoice: false}
+	_ = cfg
+}
+
+// TestDefaultCopilotModel_IsGPT5Mini is a regression test ensuring the
+// default model constant stays gpt-5-mini.
+func TestDefaultCopilotModel_IsGPT5Mini(t *testing.T) {
+	t.Parallel()
+	if models.DefaultCopilotModel != "gpt-5-mini" {
+		t.Errorf("DefaultCopilotModel = %q, want gpt-5-mini", models.DefaultCopilotModel)
+	}
+}
+
+// TestResolveCopilotModel_NeverFallsBack verifies that no fallback behavior
+// exists — unsupported models always produce errors, never silently degrade.
+func TestResolveCopilotModel_NeverFallsBack(t *testing.T) {
+	t.Parallel()
+	unsupported := []string{"raptor-mini", "gpt-3.5-turbo", "future-xyz"}
+	for _, m := range unsupported {
+		t.Run(m, func(t *testing.T) {
+			cfg := models.Config{CopilotDefaultModel: m}
+			_, err := ResolveCopilotModel(cfg, "")
+			if err == nil {
+				t.Fatalf("unsupported model %q should error, not fall back", m)
+			}
+		})
 	}
 }

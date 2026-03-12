@@ -8,9 +8,8 @@ import (
 
 func TestCopilotConfigYAMLRoundTrip(t *testing.T) {
 	cfg := Config{
-		IntegrationBranch:           "main",
-		CopilotDefaultModel:         "gpt-5-mini",
-		CopilotStrictModelSelection: true,
+		IntegrationBranch:   "main",
+		CopilotDefaultModel: "gpt-5-mini",
 	}
 
 	data, err := yaml.Marshal(cfg)
@@ -25,9 +24,6 @@ func TestCopilotConfigYAMLRoundTrip(t *testing.T) {
 
 	if roundTripped.CopilotDefaultModel != "gpt-5-mini" {
 		t.Errorf("CopilotDefaultModel = %q, want %q", roundTripped.CopilotDefaultModel, "gpt-5-mini")
-	}
-	if !roundTripped.CopilotStrictModelSelection {
-		t.Error("CopilotStrictModelSelection should be true")
 	}
 }
 
@@ -51,9 +47,6 @@ func TestCopilotConfigOmitsEmptyFields(t *testing.T) {
 	yamlStr := string(data)
 	if contains(yamlStr, "copilot_default_model") {
 		t.Error("empty copilot_default_model should be omitted from YAML")
-	}
-	if contains(yamlStr, "copilot_strict_model_selection") {
-		t.Error("false copilot_strict_model_selection should be omitted from YAML")
 	}
 }
 

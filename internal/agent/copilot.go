@@ -33,7 +33,6 @@ var CopilotSupportedModels = []string{
 // CopilotModelConfig holds the resolved model configuration for a Copilot CLI invocation.
 type CopilotModelConfig struct {
 	Model          string // the resolved model to use
-	WasFallback    bool   // true if the fallback was used instead of the default
 	ExplicitChoice bool   // true if the user explicitly chose this model
 }
 
@@ -45,13 +44,12 @@ func IsCopilotModelSupported(model string) bool {
 // ResolveCopilotModel determines which model to use for a Copilot CLI invocation.
 //
 // Resolution order:
-//  1. If explicitModel is non-empty, use it. If it is unsupported and strict mode
-//     is active, return an error. If strict mode is off, allow it through (the
-//     Copilot CLI will fail with its own error if truly invalid).
-//  2. If no explicit model, use the configured default (from Config or the global default).
-//  3. If the default is unsupported and a fallback is configured and supported, use it.
-//  4. If the default is unsupported and no valid fallback exists, return the default
-//     anyway — the Copilot CLI will produce a clear error.
+//  1. If explicitModel is non-empty, validate against CopilotSupportedModels.
+//     Unsupported models are rejected with a clear error.
+//  2. If no explicit model, use the configured default (from Config or the global
+//     default constant). The default must also be in CopilotSupportedModels.
+//
+// There is no fallback mechanism. An unsupported model always returns an error.
 func ResolveCopilotModel(cfg models.Config, explicitModel string) (CopilotModelConfig, error) {
 	// Case 1: explicit model override — always validate.
 	if explicitModel != "" {
