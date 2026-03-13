@@ -143,12 +143,13 @@ func TestAddTask_EnforceDeduplication(t *testing.T) {
 	}
 }
 
-// TestAddTask_DeduplicationAllowsDifferentScope tests dedup doesn't block different scopes.
-func TestAddTask_DeduplicationAllowsDifferentScope(t *testing.T) {
+// TestAddTask_DeduplicationBlocksSameDescription tests that tasks with the same
+// description are always rejected, regardless of scope differences.
+// This prevents planner LLMs from creating near-duplicate remediation tasks.
+func TestAddTask_DeduplicationBlocksSameDescription(t *testing.T) {
 	t.Parallel()
 
 	state := testhelpers.CreateValidState()
-	state.Config.EnforceDeduplication = true
 	state.Tasks = append(state.Tasks, models.Task{
 		ID:          "existing-task",
 		Description: "Implement feature Z",
@@ -173,16 +174,16 @@ func TestAddTask_DeduplicationAllowsDifferentScope(t *testing.T) {
 		Description: "Implement feature Z", // same description
 		SpecRef:     "specs/vision.md",
 		DoneWhen:    "tests pass",
-		Scope:       "module A", // different scope — should pass
+		Scope:       "module A", // different scope — still blocked by description dedup
 		Priority:    2,
 	}
 
-	result, err := AddTask(statePath, logPath, input, "planner-1")
-	if err != nil {
-		t.Fatalf("expected success when scope differs: %v", err)
+	_, err := AddTask(statePath, logPath, input, "planner-1")
+	if err == nil {
+		t.Fatal("expected error for duplicate description, got nil")
 	}
-	if result.TaskID != "different-scope-task" {
-		t.Errorf("unexpected task ID: %s", result.TaskID)
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("expected duplicate error, got: %v", err)
 	}
 }
 

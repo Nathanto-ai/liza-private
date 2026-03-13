@@ -118,7 +118,22 @@ func AddTask(statePath, logPath string, input *AddTaskInput, plannerID string) (
 		return nil, fmt.Errorf("task %s: requirement_refs required (enforce_requirement_refs is enabled in config)", input.ID)
 	}
 
-	// Enforce deduplication: reject tasks with identical description + scope
+	// Always-on dedup: reject tasks whose description matches a non-complete task.
+	// This prevents planner LLMs from creating duplicate remediation tasks on
+	// successive planning cycles.
+	for _, existing := range state.Tasks {
+		if existing.Status.IsComplete() {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(existing.Description), strings.TrimSpace(input.Description)) {
+			return nil, fmt.Errorf(
+				"task %s is a duplicate of existing task %s (same description)",
+				input.ID, existing.ID,
+			)
+		}
+	}
+
+	// Enforce stricter deduplication (description + scope) when config flag enabled
 	if state.Config.EnforceDeduplication {
 		for _, existing := range state.Tasks {
 			if existing.Status.IsComplete() {

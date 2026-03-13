@@ -48,7 +48,10 @@ func validateIdentity(agentID, role string) error {
 	return nil
 }
 
-// registerAgent registers an agent with collision detection
+// registerAgent registers an agent with collision detection.
+// If an existing agent has a valid lease but its process is dead, the
+// registration auto-recovers (releases claims, deletes old entry) instead
+// of requiring manual `liza recover-agent`.
 func registerAgent(bb *db.Blackboard, projectRoot, agentID, role, terminal string, leaseDuration int) error {
 	logger := GetLogger()
 	now := time.Now().UTC()
@@ -60,10 +63,29 @@ func registerAgent(bb *db.Blackboard, projectRoot, agentID, role, terminal strin
 		if existing, exists := state.Agents[agentID]; exists {
 			// Check if lease is still valid
 			if existing.LeaseExpires != nil && existing.LeaseExpires.After(now) {
-				return fmt.Errorf("agent ID collision: %s already registered with valid lease (expires %s)",
-					agentID, existing.LeaseExpires.Format(time.RFC3339))
+				// Lease valid — check if the process is actually alive
+				if existing.PID > 0 && !ops.IsProcessAlive(existing.PID) {
+					// Process is dead but lease hasn't expired.
+					// Auto-recover: release task claims and delete stale entry.
+					logger.Info("Auto-recovering dead agent with valid lease",
+						"agent_id", agentID,
+						"dead_pid", existing.PID,
+						"lease_expires", existing.LeaseExpires.Format(time.RFC3339))
+					if existing.CurrentTask != nil {
+						taskID := *existing.CurrentTask
+						if task := state.FindTask(taskID); task != nil {
+							releaseTaskClaim(state, task, existing.Role, agentID, now)
+						}
+					}
+					delete(state.Agents, agentID)
+					// Fall through to register the new agent below
+				} else {
+					return fmt.Errorf("agent ID collision: %s already registered with valid lease (expires %s)",
+						agentID, existing.LeaseExpires.Format(time.RFC3339))
+				}
+			} else {
+				logger.Info("Taking over expired agent lease", "agent_id", agentID)
 			}
-			logger.Info("Taking over expired agent lease", "agent_id", agentID)
 		}
 
 		// Register agent directly as IDLE (atomic operation)

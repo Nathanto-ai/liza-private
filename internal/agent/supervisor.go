@@ -582,6 +582,23 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		return fmt.Errorf("failed to read state: %w", err)
 	}
 
+	// Start supervisor-level heartbeat that runs continuously (including idle periods).
+	// This replaces the per-execution heartbeat in executeAgent() to prevent
+	// stale heartbeat timestamps when agents are waiting for work.
+	supervisorHeartbeatCtx, cancelSupervisorHeartbeat := context.WithCancel(ctx)
+	defer cancelSupervisorHeartbeat()
+
+	supervisorHB := NewHeartbeat(HeartbeatConfig{
+		AgentID:   config.AgentID,
+		StatePath: config.StatePath,
+		State:     state,
+	})
+	go func() {
+		if err := supervisorHB.Start(supervisorHeartbeatCtx); err != nil && err != context.Canceled {
+			GetLogger().Error("Supervisor heartbeat error", "error", err, "agent_id", config.AgentID)
+		}
+	}()
+
 	pollInterval, maxWait := getRoleWaitConfig(state, config.Role)
 
 	// Set execution timeout if not configured

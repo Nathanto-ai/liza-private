@@ -54,7 +54,7 @@ func TestInitCommand(t *testing.T) {
 			description: "Test goal",
 			specRef:     "specs/vision.md",
 			setup: func(t *testing.T, tmpDir string) {
-				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 			},
 			wantErr: false,
 		},
@@ -63,7 +63,7 @@ func TestInitCommand(t *testing.T) {
 			description: "Test goal",
 			specRef:     "specs/vision.md",
 			setup: func(t *testing.T, tmpDir string) {
-				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 				// Create .liza directory
 				lizaDir := paths.New(tmpDir).LizaDir()
 				if err := os.Mkdir(lizaDir, 0755); err != nil {
@@ -87,10 +87,20 @@ func TestInitCommand(t *testing.T) {
 			specRef:     "specs/vision.md",
 			skipGlobal:  true,
 			setup: func(t *testing.T, tmpDir string) {
-				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 			},
 			wantErr:     true,
 			errContains: "Run 'liza setup' first",
+		},
+		{
+			name:        "spec validation fails for incomplete vision",
+			description: "Test goal",
+			specRef:     "specs/vision.md",
+			setup: func(t *testing.T, tmpDir string) {
+				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\nJust a title.\n")
+			},
+			wantErr:     true,
+			errContains: "spec validation failed",
 		},
 	}
 
@@ -160,7 +170,7 @@ func TestInitCommandDirectoryStructure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Run init
 	if err := InitCommand("Test goal", "specs/vision.md", nil); err != nil {
@@ -216,7 +226,7 @@ func TestInitCommandIntegrationBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Verify integration branch doesn't exist
 	cmd := exec.Command("git", "rev-parse", "--verify", "integration")
@@ -397,7 +407,7 @@ func TestInitCommand_CreatesContractSymlinks(t *testing.T) {
 	}
 
 	// Setup
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Run init
 	err = InitCommand("Test goal", "specs/vision.md", nil)
@@ -437,7 +447,7 @@ func TestInitCommand_SkipsCorrectSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Pre-create CLAUDE.md as the correct symlink (absolute to global)
 	globalDir := filepath.Join(fakeHome, ".liza")
@@ -478,7 +488,7 @@ func TestInitCommand_DoesNotOverwriteWithoutConsent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Pre-create CLAUDE.md as a regular file
 	existingContent := "# Custom contract\n"
@@ -529,7 +539,7 @@ func TestInitCommand_WritesClaudeSettings(t *testing.T) {
 	}
 
 	// Setup
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Run init
 	err = InitCommand("Test goal", "specs/vision.md", nil)

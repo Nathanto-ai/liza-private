@@ -597,3 +597,29 @@ Then: z
 		})
 	}
 }
+
+func TestInferSpecType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		filename string
+		want     SpecType
+	}{
+		{"specs/vision.md", SpecTypeVision},
+		{"specs/delivery-mvp.md", SpecTypeDelivery},
+		{"delivery.md", SpecTypeDelivery},
+		{"DELIVERY-SPRINT-1.md", SpecTypeDelivery},
+		{"architecture.md", SpecTypeVision},
+		{"spec.md", SpecTypeVision},
+		{"path/to/my-delivery-spec.md", SpecTypeDelivery},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.filename, func(t *testing.T) {
+			got := InferSpecType(tt.filename)
+			if got != tt.want {
+				t.Errorf("InferSpecType(%q) = %q, want %q", tt.filename, got, tt.want)
+			}
+		})
+	}
+}

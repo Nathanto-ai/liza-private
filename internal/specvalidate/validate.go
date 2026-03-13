@@ -5,6 +5,7 @@ package specvalidate
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -22,6 +23,17 @@ type ValidationResult struct {
 	Valid    bool
 	Missing  []string
 	Warnings []string
+}
+
+// InferSpecType guesses the spec type from the filename.
+// Files whose base name contains "delivery" are treated as delivery specs;
+// everything else is treated as a vision spec.
+func InferSpecType(filename string) SpecType {
+	base := strings.ToLower(filepath.Base(filename))
+	if strings.Contains(base, "delivery") {
+		return SpecTypeDelivery
+	}
+	return SpecTypeVision
 }
 
 // ValidateSpecFile reads and validates a spec file at the given path.

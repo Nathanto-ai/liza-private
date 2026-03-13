@@ -10,6 +10,7 @@ import (
 	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/prompts"
 	"github.com/liza-mas/liza/internal/roles"
+	"github.com/liza-mas/liza/internal/specvalidate"
 )
 
 // buildPrompt creates the complete prompt for the agent
@@ -73,6 +74,23 @@ func buildPrompt(state *models.State, config SupervisorConfig, taskID string) (s
 		prompt += context
 
 	case roles.RuntimePlanner:
+		// Validate spec before planning to catch incomplete specs early
+		if state.Goal.SpecRef != "" {
+			specPath := state.Goal.SpecRef
+			if !filepath.IsAbs(specPath) {
+				specPath = filepath.Join(config.ProjectRoot, specPath)
+			}
+			specContent, err := os.ReadFile(specPath)
+			if err != nil {
+				return "", fmt.Errorf("reading spec for validation: %w", err)
+			}
+			specType := specvalidate.InferSpecType(state.Goal.SpecRef)
+			result := specvalidate.ValidateSpecFile(string(specContent), specType)
+			if !result.Valid {
+				return "", fmt.Errorf("spec validation failed (type %q): missing sections: %v", specType, result.Missing)
+			}
+		}
+
 		plannerConfig := prompts.PlannerContextConfig{}
 		context, err := prompts.BuildPlannerContext(state, plannerConfig)
 		if err != nil {

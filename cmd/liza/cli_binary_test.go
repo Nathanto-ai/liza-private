@@ -17,6 +17,28 @@ import (
 	"testing"
 )
 
+// validVisionContent is a minimal spec that passes specvalidate for CLI binary tests.
+const validVisionContent = `# Vision: Test
+
+## Problem Statement
+Test problem.
+
+## Target Users
+Developers.
+
+## MVP Scope
+- Feature A
+
+## Explicit Out of Scope
+- Feature B
+
+## Success Criteria
+All tests pass.
+
+## Risks and Assumptions
+None significant.
+`
+
 // lizaBinary returns the path to the built liza binary.
 // Tests that use this should call buildLiza first.
 func lizaBinary(t *testing.T) string {
@@ -277,7 +299,7 @@ func TestCLI_InitAndStatus(t *testing.T) {
 	if err := os.MkdirAll(specsDir, 0755); err != nil {
 		t.Fatalf("Failed to create specs dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(specsDir, "vision.md"), []byte("# Test Vision\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(specsDir, "vision.md"), []byte(validVisionContent), 0644); err != nil {
 		t.Fatalf("Failed to write vision.md: %v", err)
 	}
 
@@ -328,7 +350,7 @@ func TestCLI_ValidateAfterInit(t *testing.T) {
 
 	specsDir := filepath.Join(tmpDir, "specs")
 	os.MkdirAll(specsDir, 0755)
-	os.WriteFile(filepath.Join(specsDir, "vision.md"), []byte("# Vision\n"), 0644)
+	os.WriteFile(filepath.Join(specsDir, "vision.md"), []byte(validVisionContent), 0644)
 
 	// Init — positional description argument
 	initCmd := exec.Command(bin, "init", "test",

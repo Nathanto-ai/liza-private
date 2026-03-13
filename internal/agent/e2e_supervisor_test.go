@@ -154,7 +154,7 @@ func setupE2E(t *testing.T, state *models.State) *e2eEnv {
 
 	// Create specs directory with a minimal spec file (buildPrompt reads it)
 	specsDir := filepath.Join(tmpDir, "specs")
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\nTest vision spec\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Create prompts directory so savePrompt succeeds
 	promptsDir := filepath.Join(tmpDir, ".liza", "prompts")

@@ -30,6 +30,29 @@ import (
 	"testing"
 )
 
+// ValidVisionSpec is a minimal vision spec that passes specvalidate validation.
+// Use this in tests that go through InitCommand or planner prompt building.
+const ValidVisionSpec = `# Vision: Test
+
+## Problem Statement
+Test problem.
+
+## Target Users
+Developers.
+
+## MVP Scope
+- Feature A
+
+## Explicit Out of Scope
+- Feature B
+
+## Success Criteria
+All tests pass.
+
+## Risks and Assumptions
+None significant.
+`
+
 // SetupTestGitRepo initializes a git repository with basic configuration.
 // It performs the following:
 //   - Initializes a git repo in tmpDir

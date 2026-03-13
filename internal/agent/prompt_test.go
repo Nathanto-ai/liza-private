@@ -9,6 +9,7 @@ import (
 
 	"github.com/liza-mas/liza/internal/errors"
 	"github.com/liza-mas/liza/internal/models"
+	"github.com/liza-mas/liza/internal/testhelpers"
 )
 
 // TestBuildPrompt tests the buildPrompt function
@@ -89,6 +90,12 @@ func TestBuildPrompt(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
+
+			// Create the spec file on disk so planner validation can read it
+			if err := os.WriteFile(filepath.Join(tmpDir, "spec.md"), []byte(testhelpers.ValidVisionSpec), 0644); err != nil {
+				t.Fatal(err)
+			}
+
 			config := SupervisorConfig{
 				Role:        tt.role,
 				AgentID:     tt.role + "-1",

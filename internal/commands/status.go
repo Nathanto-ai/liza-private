@@ -2,15 +2,13 @@ package commands
 
 import (
 	"fmt"
-	"os"
-	"runtime"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/liza-mas/liza/internal/db"
 	"github.com/liza-mas/liza/internal/models"
+	"github.com/liza-mas/liza/internal/ops"
 	"github.com/liza-mas/liza/internal/paths"
 )
 
@@ -417,33 +415,17 @@ func buildWorkQueuesStatus(state *models.State, claimable, reviewable int) workQ
 	}
 }
 
-// getProcessStatus checks if a process is running.
-// On Windows, Signal(0) is not supported, so we open the process handle
-// via FindProcess and attempt a non-destructive signal to confirm liveness.
+// getProcessStatus checks if a process is running using the platform-specific
+// ops.IsProcessAlive which correctly uses OpenProcess+GetExitCodeProcess on
+// Windows and Signal(0) on Unix.
 func getProcessStatus(pid int) string {
 	if pid == 0 {
 		return "unknown"
 	}
-
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return "not found"
-	}
-
-	if runtime.GOOS == "windows" {
-		// On Windows, FindProcess always succeeds. Attempt Signal(0)
-		// which returns an error for non-existent processes.
-		if err := process.Signal(syscall.Signal(0)); err != nil {
-			return "stopped"
-		}
+	if ops.IsProcessAlive(pid) {
 		return "running"
 	}
-
-	// On Unix, Signal(0) checks process existence without sending a signal.
-	if err := process.Signal(syscall.Signal(0)); err != nil {
-		return "stopped"
-	}
-	return "running"
+	return "stopped"
 }
 
 func writeTasksSection(b *strings.Builder, tasks taskStatus) {

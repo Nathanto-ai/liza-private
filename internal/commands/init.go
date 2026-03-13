@@ -15,6 +15,7 @@ import (
 	"github.com/liza-mas/liza/internal/embedded"
 	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/paths"
+	"github.com/liza-mas/liza/internal/specvalidate"
 )
 
 // InitCommand initializes a new Liza workspace.
@@ -45,6 +46,22 @@ func InitCommand(description string, specRef string, stdin io.Reader) error {
 	}
 	if _, err := os.Stat(specPath); os.IsNotExist(err) {
 		return fmt.Errorf("spec file does not exist: %s\nCreate spec document first. See templates/vision-template.md", specRef)
+	}
+
+	// Validate spec content against required sections
+	specContent, err := os.ReadFile(specPath)
+	if err != nil {
+		return fmt.Errorf("failed to read spec file %s: %w", specRef, err)
+	}
+	specType := specvalidate.InferSpecType(specRef)
+	result := specvalidate.ValidateSpecFile(string(specContent), specType)
+	if len(result.Warnings) > 0 {
+		for _, w := range result.Warnings {
+			fmt.Fprintf(os.Stderr, "WARNING: %s\n", w)
+		}
+	}
+	if !result.Valid {
+		return fmt.Errorf("spec validation failed (detected type %q): missing sections: %v\nFix the spec or use 'liza validate-spec' to check", specType, result.Missing)
 	}
 
 	// Validate global config exists (liza setup must have been run)
@@ -292,7 +309,10 @@ func InitCommand(description string, specRef string, stdin io.Reader) error {
 	return nil
 }
 
-// createIntegrationBranch creates the integration branch if it doesn't exist
+// createIntegrationBranch creates the integration branch from the current
+// branch's HEAD. It resolves the current branch name explicitly so the
+// integration branch is always based on the correct commit, even if HEAD
+// later moves (e.g., in a worktree or detached state).
 func createIntegrationBranch() error {
 	// Check if integration branch exists
 	cmd := exec.Command("git", "rev-parse", "--verify", "integration")
@@ -301,8 +321,23 @@ func createIntegrationBranch() error {
 		return nil
 	}
 
-	// Create integration branch from HEAD
-	cmd = exec.Command("git", "branch", "integration", "HEAD")
+	// Resolve the current branch name to use as base
+	cmd = exec.Command("git", "symbolic-ref", "--short", "HEAD")
+	branchOut, err := cmd.Output()
+	if err != nil {
+		// Detached HEAD or error — fall back to HEAD
+		cmd = exec.Command("git", "branch", "integration", "HEAD")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("git branch failed: %w: %s", err, string(output))
+		}
+		return nil
+	}
+
+	baseBranch := strings.TrimSpace(string(branchOut))
+
+	// Create integration branch from the resolved branch tip
+	cmd = exec.Command("git", "branch", "integration", baseBranch)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git branch failed: %w: %s", err, string(output))

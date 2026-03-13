@@ -76,7 +76,8 @@ func waitWhilePaused(ctx context.Context, projectRoot string) error {
 	}
 }
 
-// executeAgent executes the CLI with heartbeat and timeout
+// executeAgent executes the CLI with timeout.
+// Heartbeat is handled at the supervisor level to keep it active during idle periods.
 func executeAgent(ctx context.Context, config SupervisorConfig, prompt string) (int, error) {
 	logger := GetLogger()
 	// Interactive mode: launch CLI without -p so user can paste the prompt
@@ -91,33 +92,8 @@ func executeAgent(ctx context.Context, config SupervisorConfig, prompt string) (
 	execCtx, cancelExec := context.WithTimeout(ctx, config.ExecutionTimeout)
 	defer cancelExec()
 
-	// Start heartbeat
-	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
-	defer cancelHeartbeat()
-
-	// Read state to get heartbeat interval from config
-	var state *models.State
-	if bb := db.For(config.StatePath); bb != nil {
-		state, _ = bb.Read()
-	}
-
-	hb := NewHeartbeat(HeartbeatConfig{
-		AgentID:   config.AgentID,
-		StatePath: config.StatePath,
-		State:     state,
-	})
-
-	go func() {
-		if err := hb.Start(heartbeatCtx); err != nil && err != context.Canceled {
-			logger.Error("Heartbeat error during agent execution", "error", err, "agent_id", config.AgentID)
-		}
-	}()
-
 	// Execute CLI with timeout
 	exitCode, err := config.Executor.Execute(execCtx, config.CLIName, config.AgentID, prompt, config.ProjectRoot, config.AutoApprove)
-
-	// Stop heartbeat
-	cancelHeartbeat()
 
 	// Check if execution timed out
 	if err != nil && errors.Is(err, context.DeadlineExceeded) {
