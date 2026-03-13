@@ -863,6 +863,28 @@ func (s *Server) handleExec(params map[string]any) (any, error) {
 	if runErr != nil {
 		if exitErr, ok := runErr.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
+		} else if ctx.Err() != nil {
+			// Context timeout — return partial output with diagnostic hints
+			result := fmt.Sprintf("Command timed out after %s.\n", timeout)
+			if stdout.Len() > 0 {
+				result += fmt.Sprintf("--- partial stdout ---\n%s\n", stdout.String())
+			}
+			if stderr.Len() > 0 {
+				result += fmt.Sprintf("--- partial stderr ---\n%s\n", stderr.String())
+			}
+			if stdout.Len() == 0 && stderr.Len() == 0 {
+				result += "(no output captured before timeout)\n"
+			}
+			// Add diagnostic hint for test commands
+			cmdLower := strings.ToLower(command)
+			if strings.Contains(cmdLower, "test") || strings.Contains(cmdLower, "pytest") {
+				result += "\nHINT: Test command timed out — possible deadlock or infinite loop.\n" +
+					"- Check for mutex re-entrancy (Go sync.Mutex is NOT reentrant)\n" +
+					"- Check for channel deadlocks (unbuffered channel with no reader)\n" +
+					"- Check for infinite loops with no termination condition\n" +
+					"- Try running with -timeout 10s to get a goroutine dump\n"
+			}
+			return textResult(result)
 		} else {
 			return nil, fmt.Errorf("exec failed: %w", runErr)
 		}

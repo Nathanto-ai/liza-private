@@ -470,7 +470,7 @@ func (s *Server) registerMutationTools() {
 				},
 				"type": {
 					Type:        "string",
-					Description: "Task type determining role workflow (default: coding)",
+					Description: "Task type determining role workflow. Valid values: 'coding'. Default: 'coding'",
 					Default:     "coding",
 				},
 				"origin_finding_id": {

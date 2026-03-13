@@ -1,12 +1,29 @@
 {{- define "wake_blocked_tasks" -}}
 Tasks are BLOCKED. Analyze and resolve immediately:
 
+{{- if .Tasks}}
+=== BLOCKED TASK DETAILS ===
+{{- range .Tasks}}
+TASK: {{.ID}}
+  Description: {{.Description}}
+  Blocked Reason: {{.BlockedReason}}
+  {{- if .Worktree}}
+  Worktree: {{.Worktree}}
+  {{- end}}
+  {{- if .AssignedTo}}
+  Last Assigned: {{.AssignedTo}}
+  {{- end}}
+{{end}}
+{{- end}}
+
 1. Read blocked tasks from blackboard — understand blocker_reason
+1b. VERIFY the blocker independently: Run liza_exec with a simple command (e.g., "echo hello" or "git status") in the TASK'S WORKTREE to confirm infrastructure works. If simple commands succeed, the blocker is likely in the agent's own generated code, not infrastructure.
 2. Determine if blocker is:
    - Missing dependency → create prerequisite task (execute liza_add_task tool NOW)
    - Spec ambiguity → clarify spec, then unblock task (fallback state edit + liza_validate)
    - External dependency → document, possibly supersede task
    - Wrong approach → supersede task, create alternative (execute tools NOW)
+   - Agent's own code bug (e.g., deadlock, infinite loop) → supersede task, create replacement with bug-fix focus
 3. For each blocked task, decide action:
    - To unblock: Set status → READY via fallback state edit, then run liza_validate
    - To supersede: First create replacement tasks, then use liza_supersede_task tool

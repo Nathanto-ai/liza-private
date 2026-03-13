@@ -118,7 +118,7 @@ func BuildPlannerContext(state *models.State, config PlannerContextConfig) (stri
 
 	wakeTrigger := determineWakeTrigger(totalTasks, blocked, integrationFailed, hypothesisExhausted, immediateDiscoveries, unresolvedReplan, unresolvedRemediation, state.AllPlannedTasksTerminal())
 
-	wakeInstructions, err := buildInstructionsForWakeTrigger(wakeTrigger, state.Goal.SpecRef)
+	wakeInstructions, err := buildInstructionsForWakeTrigger(wakeTrigger, state.Goal.SpecRef, state)
 	if err != nil {
 		return "", fmt.Errorf("building wake instructions: %w", err)
 	}
@@ -293,13 +293,28 @@ type wakeTemplateData struct {
 	GoalSpecRef string
 }
 
+// blockedTaskInfo holds summary data for a blocked task, used in the wake_blocked_tasks template.
+type blockedTaskInfo struct {
+	ID            string
+	Description   string
+	BlockedReason string
+	Worktree      string
+	AssignedTo    string
+}
+
+// wakeBlockedData is the template data for wake_blocked_tasks.tmpl
+type wakeBlockedData struct {
+	Tasks []blockedTaskInfo
+}
+
 // buildInstructionsForWakeTrigger returns trigger-specific instructions
-func buildInstructionsForWakeTrigger(wakeTrigger, goalSpecRef string) (string, error) {
+func buildInstructionsForWakeTrigger(wakeTrigger, goalSpecRef string, state *models.State) (string, error) {
 	switch wakeTrigger {
 	case "INITIAL_PLANNING":
 		return executeTemplate("wake_initial_planning", wakeTemplateData{GoalSpecRef: goalSpecRef})
 	case "BLOCKED_TASKS":
-		return executeTemplate("wake_blocked_tasks", nil)
+		data := buildBlockedTaskData(state)
+		return executeTemplate("wake_blocked_tasks", data)
 	case "INTEGRATION_FAILED":
 		return executeTemplate("wake_integration_failed", nil)
 	case "HYPOTHESIS_EXHAUSTED":
@@ -315,4 +330,31 @@ func buildInstructionsForWakeTrigger(wakeTrigger, goalSpecRef string) (string, e
 	default:
 		return "", nil
 	}
+}
+
+// buildBlockedTaskData extracts blocked task info from state for the planner wake template.
+func buildBlockedTaskData(state *models.State) wakeBlockedData {
+	var tasks []blockedTaskInfo
+	if state != nil {
+		for _, t := range state.Tasks {
+			if t.Status != models.TaskStatusBlocked {
+				continue
+			}
+			info := blockedTaskInfo{
+				ID:          t.ID,
+				Description: t.Description,
+			}
+			if t.BlockedReason != nil {
+				info.BlockedReason = *t.BlockedReason
+			}
+			if t.Worktree != nil {
+				info.Worktree = *t.Worktree
+			}
+			if t.AssignedTo != nil {
+				info.AssignedTo = *t.AssignedTo
+			}
+			tasks = append(tasks, info)
+		}
+	}
+	return wakeBlockedData{Tasks: tasks}
 }

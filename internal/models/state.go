@@ -750,6 +750,10 @@ const (
 	DefaultExit42MaxBackoffSec  = 60
 	DefaultExit42RestartLimit   = 5
 
+	DefaultMaxIterationsWithoutProgress = 5
+	DefaultIdleBackoffBaseSec           = 30
+	DefaultIdleBackoffMaxSec            = 600 // 10 minutes
+
 	// DefaultCopilotModel is the default model for the Copilot CLI backend.
 	// gpt-5-mini is the GPT-5 family mini model available in Copilot CLI.
 	// When Raptor mini becomes available, update this constant.
@@ -808,7 +812,12 @@ type Config struct {
 	EnforceRequirementRefs     bool       `yaml:"enforce_requirement_refs,omitempty"`
 	EnforceDeduplication       bool       `yaml:"enforce_deduplication,omitempty"`
 	RequireAuditForSprintClose bool       `yaml:"require_audit_for_sprint_close,omitempty"`
+	// Stuck-coder detection: block task after N iterations with no progress
+	MaxIterationsWithoutProgress int `yaml:"max_iterations_without_progress,omitempty"`
 
+	// Idle agent backoff: exponential delay when no work is available
+	IdleBackoffBaseSec int `yaml:"idle_backoff_base_seconds,omitempty"`
+	IdleBackoffMaxSec  int `yaml:"idle_backoff_max_seconds,omitempty"`
 	// Copilot CLI backend configuration
 	CopilotDefaultModel string `yaml:"copilot_default_model,omitempty"`
 

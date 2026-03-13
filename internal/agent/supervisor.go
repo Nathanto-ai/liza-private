@@ -98,6 +98,67 @@ func (crt *crashRetryTracker) reset() {
 	crt.lastTaskID = ""
 }
 
+// progressTracker tracks consecutive iterations without meaningful task progress.
+// When the threshold is exceeded, the task is transitioned to BLOCKED.
+type progressTracker struct {
+	lastTaskID    string
+	lastIteration int
+	lastCommit    string
+	noProgressCount int
+	limit         int
+}
+
+func newProgressTracker(cfg models.Config) *progressTracker {
+	limit := cfg.MaxIterationsWithoutProgress
+	if limit <= 0 {
+		limit = models.DefaultMaxIterationsWithoutProgress
+	}
+	return &progressTracker{limit: limit}
+}
+
+// check compares current task state to the last snapshot.
+// Returns true if the task should be blocked due to no progress.
+func (pt *progressTracker) check(task *models.Task) bool {
+	if task == nil {
+		pt.reset()
+		return false
+	}
+
+	commit := ""
+	if task.ReviewCommit != nil {
+		commit = *task.ReviewCommit
+	}
+
+	if task.ID != pt.lastTaskID {
+		// New task — start tracking
+		pt.lastTaskID = task.ID
+		pt.lastIteration = task.Iteration
+		pt.lastCommit = commit
+		pt.noProgressCount = 0
+		return false
+	}
+
+	// Same task — check for progress
+	if task.Iteration != pt.lastIteration || commit != pt.lastCommit ||
+		task.Status != models.TaskStatusImplementing {
+		// Progress made or status changed
+		pt.lastIteration = task.Iteration
+		pt.lastCommit = commit
+		pt.noProgressCount = 0
+		return false
+	}
+
+	pt.noProgressCount++
+	return pt.noProgressCount >= pt.limit
+}
+
+func (pt *progressTracker) reset() {
+	pt.lastTaskID = ""
+	pt.lastIteration = 0
+	pt.lastCommit = ""
+	pt.noProgressCount = 0
+}
+
 type exit42RestartState struct {
 	RestartCount int
 	Signature    string
@@ -622,6 +683,8 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 	mergeRetries := 0
 	exit42Tracker := newExit42RestartTracker()
 	crashTracker := newCrashRetryTracker(state.Config)
+	progTracker := newProgressTracker(state.Config)
+	consecutiveIdleCount := 0
 
 	// Wire budget tracker for runaway prevention
 	budget := runtime.NewBudgetTrackerFromConfig(state.Config)
@@ -725,12 +788,18 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 			// already re-enter via wake triggers; auditor should behave
 			// the same way—only exiting on shutdown/abort/budget/anomaly.
 			if config.Role == roles.RuntimeAuditor {
-				GetLogger().Info("Auditor: no work available, returning to idle")
+				consecutiveIdleCount++
+				backoff := computeIdleBackoff(consecutiveIdleCount, state.Config)
+				GetLogger().Info("Auditor: no work available, backing off before retry",
+					"idle_count", consecutiveIdleCount,
+					"backoff", backoff)
+				time.Sleep(backoff)
 				continue
 			}
 			GetLogger().Info("No work available, supervisor exiting")
 			return nil
 		}
+		consecutiveIdleCount = 0 // Reset on work found
 
 		// Claim task (coder/reviewer only)
 		var taskID string
@@ -832,6 +901,23 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 
 			exit42Tracker.reset(taskID)
 			crashTracker.reset()
+
+			// Stuck-coder detection: check for progress on coder tasks
+			if config.Role == roles.RuntimeCoder && claimedTaskID != "" {
+				postState, readErr := bb.Read()
+				if readErr == nil {
+					task := postState.FindTask(claimedTaskID)
+					if progTracker.check(task) {
+						GetLogger().Warn("Task stuck: no progress after multiple iterations, blocking",
+							"task_id", claimedTaskID,
+							"iterations_without_progress", progTracker.noProgressCount,
+							"agent_id", config.AgentID)
+						blockTaskOnNoProgress(bb, claimedTaskID, config.AgentID, progTracker.noProgressCount, progTracker.limit)
+						progTracker.reset()
+					}
+				}
+			}
+
 			iterRec.Status = "SUCCESS"
 			iterRec.HasDiff = true // assume success means progress
 		case 42:
@@ -947,4 +1033,76 @@ func blockTaskOnCrashLimit(bb *db.Blackboard, taskID, agentID string, crashes, l
 	if err != nil {
 		GetLogger().Error("Failed to block task after crash limit", "error", err, "task_id", taskID)
 	}
+}
+
+// blockTaskOnNoProgress transitions a task to BLOCKED after the coder runs
+// multiple iterations without making any observable progress (no iteration
+// change, no commit, status still IMPLEMENTING).
+func blockTaskOnNoProgress(bb *db.Blackboard, taskID, agentID string, count, limit int) {
+	if taskID == "" {
+		return
+	}
+	err := bb.Modify(func(s *models.State) error {
+		task := s.FindTask(taskID)
+		if task == nil {
+			return nil
+		}
+		if task.Status != models.TaskStatusImplementing {
+			return nil
+		}
+		if task.AssignedTo == nil || *task.AssignedTo != agentID {
+			return nil
+		}
+
+		reason := fmt.Sprintf(
+			"no progress detected: %d consecutive iterations without task advancement (threshold=%d). "+
+				"Possible cause: test deadlock, infinite loop, or repeated failure without code changes.",
+			count, limit,
+		)
+		questions := []string{
+			"Is the implementation approach fundamentally blocked (e.g., deadlocking tests)?",
+			"Should this task be superseded with a new approach?",
+		}
+
+		if err := task.Transition(models.TaskStatusBlocked); err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		task.BlockedReason = &reason
+		task.BlockedQuestions = questions
+		task.AssignedTo = nil
+		task.LeaseExpires = nil
+		task.History = append(task.History, models.TaskHistoryEntry{
+			Time:   now,
+			Event:  "blocked",
+			Agent:  &agentID,
+			Reason: &reason,
+		})
+		return nil
+	})
+	if err != nil {
+		GetLogger().Error("Failed to block task on no progress", "error", err, "task_id", taskID)
+	}
+}
+
+// computeIdleBackoff returns an exponential backoff duration for idle agents.
+func computeIdleBackoff(consecutiveIdleCount int, cfg models.Config) time.Duration {
+	baseSec := cfg.IdleBackoffBaseSec
+	if baseSec <= 0 {
+		baseSec = models.DefaultIdleBackoffBaseSec
+	}
+	maxSec := cfg.IdleBackoffMaxSec
+	if maxSec <= 0 {
+		maxSec = models.DefaultIdleBackoffMaxSec
+	}
+
+	delay := time.Duration(baseSec) * time.Second
+	for i := 1; i < consecutiveIdleCount; i++ {
+		delay *= 2
+		if delay > time.Duration(maxSec)*time.Second {
+			return time.Duration(maxSec) * time.Second
+		}
+	}
+	return delay
 }

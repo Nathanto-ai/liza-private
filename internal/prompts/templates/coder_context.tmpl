@@ -92,6 +92,16 @@ BLOCKING PROTOCOL:
 Required fields: blocked_reason (what's blocking + what you attempted), blocked_questions (1-3 specific questions)
 Do NOT block for: questions answerable by reading specs, style preferences, missing nice-to-haves.
 
+TIMEOUT TROUBLESHOOTING:
+If a command times out via liza_exec (especially tests):
+1. DO NOT assume infrastructure failure. Your generated code is the most likely cause.
+2. Check for mutex deadlocks: Lock() called from a function that already holds Lock(). Go sync.Mutex is NOT reentrant.
+3. Check for channel deadlocks: unbuffered channels with no reader/writer.
+4. Check for infinite loops: for/while with no termination condition.
+5. Run tests with -timeout 5s to get a goroutine dump showing where the hang occurs.
+6. Add debug prints at function entry/exit to identify the exact hang location.
+7. Only use liza_mark_blocked for infrastructure issues AFTER verifying your own code is not the cause.
+
 ENVIRONMENT CONSTRAINT:
 If a required tool or dependency is missing (e.g., pip, npm, cargo):
 - Try at most 2 alternatives (e.g., pip3, python3 -m pip)
