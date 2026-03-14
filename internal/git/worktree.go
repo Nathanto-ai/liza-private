@@ -317,6 +317,12 @@ func (g *Git) ResetHard(ref string) error {
 	return err
 }
 
+// ResetHardInWorktree resets a worktree branch to the given ref, discarding all changes.
+func (g *Git) ResetHardInWorktree(wtPath string, ref string) error {
+	_, err := g.execInDir(wtPath, "reset", "--hard", ref)
+	return err
+}
+
 // FetchFromLocal fetches latest commits for a branch from the project root
 // Used in worktrees to sync with integration branch
 func (g *Git) FetchFromLocal(wtPath string, branch string) error {
@@ -349,6 +355,15 @@ func (g *Git) AbortRebase(wtPath string) error {
 	_, err := g.execInDir(wtPath, "rebase", "--abort")
 	if err != nil {
 		return fmt.Errorf("failed to abort rebase: %w", err)
+	}
+	return nil
+}
+
+// CherryPick applies a single commit onto the current branch in a worktree.
+func (g *Git) CherryPick(wtPath string, commitSHA string) error {
+	_, err := g.execInDir(wtPath, "cherry-pick", commitSHA)
+	if err != nil {
+		return fmt.Errorf("cherry-pick %s failed: %w", commitSHA, err)
 	}
 	return nil
 }

@@ -29,6 +29,7 @@
       "mcp__liza__liza_write_checkpoint",
       "mcp__liza__liza_submit_audit_finding",
       "mcp__liza__liza_delete_agent",
+      "mcp__liza__liza_exec",
 
       "Skill(adr-backfill)",
       "Skill(black-box-red-testing)",

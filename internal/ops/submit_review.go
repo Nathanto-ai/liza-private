@@ -124,23 +124,16 @@ func SubmitForReview(projectRoot, taskID, commitSHA, agentID string) (*SubmitFor
 	}
 
 	if err := g.RebaseOnto(wtPath, "FETCH_HEAD"); err != nil {
-		return nil, fmt.Errorf(`failed to submit task for review: rebase conflict detected
-
-Your task branch has conflicts with the latest integration branch.
-
-Worktree location: %s
-
-To resolve:
-  1. cd %s
-  2. git status (see conflicting files)
-  3. Edit files to resolve conflict markers
-  4. git add <resolved-files>
-  5. git rebase --continue
-  6. COMMIT=$(git -C %s rev-parse HEAD)
-  7. Return to project root and retry: liza submit-for-review %s $COMMIT
-
-Alternatively, abort the rebase and ask for help:
-  git rebase --abort`, wtPath, wtPath, wtPath, taskID)
+		// Auto-recovery: abort the failed rebase, reset to integration, cherry-pick the coder's commit
+		if abortErr := g.AbortRebase(wtPath); abortErr != nil {
+			return nil, fmt.Errorf("rebase conflict and abort failed: %w (original: %v)", abortErr, err)
+		}
+		if resetErr := g.ResetHardInWorktree(wtPath, "FETCH_HEAD"); resetErr != nil {
+			return nil, fmt.Errorf("rebase conflict and reset failed: %w (original: %v)", resetErr, err)
+		}
+		if cpErr := g.CherryPick(wtPath, commitSHA); cpErr != nil {
+			return nil, fmt.Errorf("rebase conflict auto-recovery failed at cherry-pick: %w (original rebase: %v)", cpErr, err)
+		}
 	}
 
 	postRebaseCommit, err := g.GetWorktreeHEAD(taskID)

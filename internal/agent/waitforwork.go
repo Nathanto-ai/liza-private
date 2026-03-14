@@ -350,9 +350,10 @@ func waitForAuditorWork(ctx context.Context, bb *db.Blackboard, projectRoot stri
 		})
 }
 
-// countUnauditedTasks counts tasks that need auditing in any phase:
-// MERGED without post_merge audit, READY_FOR_REVIEW without post_execution audit,
-// or READY without pre_execution audit.
+// countUnauditedTasks counts MERGED tasks that have not yet received a
+// post_merge audit finding. Only MERGED tasks are counted — tasks still in
+// READY_FOR_REVIEW have not been reviewed/merged yet and should not trigger
+// auditor wakes.
 func countUnauditedTasks(state *models.State) int {
 	// Build per-phase audit set
 	audited := make(map[string]map[string]bool, len(state.AuditFindings))
@@ -367,20 +368,11 @@ func countUnauditedTasks(state *models.State) int {
 
 	count := 0
 	for _, task := range state.Tasks {
-		switch task.Status {
-		case models.TaskStatusMerged:
+		if task.Status == models.TaskStatusMerged {
 			phases := audited[task.ID]
 			if phases == nil || !phases["post_merge"] {
 				count++
 			}
-		case models.TaskStatusReadyForReview:
-			phases := audited[task.ID]
-			if phases == nil || !phases["post_execution"] {
-				count++
-			}
-		// Note: READY tasks are intentionally excluded — they have no code
-		// to audit yet. Pre-execution spec audits are handled by planner
-		// wake triggers, not the auditor busy-loop.
 		}
 	}
 	return count

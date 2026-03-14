@@ -338,7 +338,7 @@ func (s *Server) registerReadOnlyTools() {
 			Properties: map[string]protocol.Property{
 				"query": {
 					Type:        "string",
-					Description: "Query path (e.g., 'tasks', 'tasks/<id>', 'agents', 'agents/<id>')",
+					Description: "Query path. Valid top-level resources: 'tasks', 'agents', 'config', 'sprint', 'state', 'metrics', 'anomalies', 'traceability'. Use 'tasks/<id>' or 'agents/<id>' for specific items. Dot-notation fields also supported (e.g., 'config.mode', 'sprint.status').",
 				},
 				"format": {
 					Type:        "string",
