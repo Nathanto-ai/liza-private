@@ -181,3 +181,52 @@ func TestSupersedeTask_DefaultPlannerID(t *testing.T) {
 		t.Fatalf("SupersedeTask() error: %v", err)
 	}
 }
+
+func TestSupersedeTask_MigratesDependencies(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile, _ := testhelpers.SetupLizaDir(t, tmpDir)
+
+	now := time.Now().UTC()
+	state := testhelpers.CreateValidState()
+
+	taskA := testhelpers.BuildTaskByStatus("task-a", models.TaskStatusReady, now)
+	taskB := testhelpers.BuildTaskByStatus("task-b", models.TaskStatusReady, now)
+	taskB.DependsOn = []string{"task-a"}
+	taskC := testhelpers.BuildTaskByStatus("task-c", models.TaskStatusReady, now)
+	taskC.DependsOn = []string{"task-a", "other-dep"}
+
+	state.Tasks = []models.Task{taskA, taskB, taskC}
+	testhelpers.WriteInitialState(t, stateFile, state)
+
+	_, err := SupersedeTask(tmpDir, "task-a", []string{"task-a-v2", "task-a-v3"}, "Split task", "planner-1")
+	if err != nil {
+		t.Fatalf("SupersedeTask() error: %v", err)
+	}
+
+	bb := db.New(stateFile)
+	readState, err := bb.Read()
+	if err != nil {
+		t.Fatalf("Failed to read state: %v", err)
+	}
+
+	// task-b should now depend on the replacements
+	taskBRead := readState.FindTask("task-b")
+	if taskBRead == nil {
+		t.Fatal("task-b not found")
+	}
+	if len(taskBRead.DependsOn) != 2 || taskBRead.DependsOn[0] != "task-a-v2" || taskBRead.DependsOn[1] != "task-a-v3" {
+		t.Errorf("task-b DependsOn = %v, want [task-a-v2 task-a-v3]", taskBRead.DependsOn)
+	}
+
+	// task-c should have replacements + other-dep
+	taskCRead := readState.FindTask("task-c")
+	if taskCRead == nil {
+		t.Fatal("task-c not found")
+	}
+	if len(taskCRead.DependsOn) != 3 ||
+		taskCRead.DependsOn[0] != "task-a-v2" ||
+		taskCRead.DependsOn[1] != "task-a-v3" ||
+		taskCRead.DependsOn[2] != "other-dep" {
+		t.Errorf("task-c DependsOn = %v, want [task-a-v2 task-a-v3 other-dep]", taskCRead.DependsOn)
+	}
+}

@@ -44,6 +44,16 @@ func SubmitForReview(projectRoot, taskID, commitSHA, agentID string) (*SubmitFor
 		return nil, err
 	}
 
+	if task.Status == models.TaskStatusSuperseded {
+		replacements := "unknown"
+		if len(task.SupersededBy) > 0 {
+			replacements = strings.Join(task.SupersededBy, ", ")
+		}
+		return nil, &PreconditionError{
+			Reason: fmt.Sprintf("task %s was SUPERSEDED (replaced by: %s) — stop work on this task and exit with code 0", taskID, replacements),
+		}
+	}
+
 	if task.Status != models.TaskStatusImplementing {
 		return nil, fmt.Errorf("task %s is not IMPLEMENTING (current status: %s)", taskID, task.Status)
 	}

@@ -378,11 +378,9 @@ func countUnauditedTasks(state *models.State) int {
 			if phases == nil || !phases["post_execution"] {
 				count++
 			}
-		case models.TaskStatusReady:
-			phases := audited[task.ID]
-			if phases == nil || !phases["pre_execution"] {
-				count++
-			}
+		// Note: READY tasks are intentionally excluded — they have no code
+		// to audit yet. Pre-execution spec audits are handled by planner
+		// wake triggers, not the auditor busy-loop.
 		}
 	}
 	return count

@@ -226,7 +226,7 @@ func (s *Server) classifyError(err error) *protocol.JSONRPCError {
 	}
 	var postWriteValidationErr *ops.PostWriteValidationError
 	if errors.As(err, &postWriteValidationErr) {
-		return protocol.NewError(protocol.ValidationError, "validation failed: precondition not met", nil)
+		return protocol.NewError(protocol.ValidationError, postWriteValidationErr.Error(), nil)
 	}
 	var preconditionErr *ops.PreconditionError
 	if errors.As(err, &preconditionErr) {
@@ -251,12 +251,13 @@ func (s *Server) classifyError(err error) *protocol.JSONRPCError {
 	}
 
 	// Validation errors (status checks, preconditions)
+	// Pass through the original message so agents get actionable feedback.
 	if strings.Contains(msg, "not IMPLEMENTING") || strings.Contains(msg, "not REVIEWING") || strings.Contains(msg, "not READY_FOR_REVIEW") ||
 		strings.Contains(msg, "not APPROVED") || strings.Contains(msg, "must be") ||
 		strings.Contains(msg, "is required") || strings.Contains(msg, "invalid task ID") ||
 		strings.Contains(msg, "validation failed") ||
 		strings.Contains(msg, "must include") || strings.Contains(msg, "mandatory") {
-		return protocol.NewError(protocol.ValidationError, "validation failed: precondition not met", nil)
+		return protocol.NewError(protocol.ValidationError, msg, nil)
 	}
 
 	// Default: return the original error message so agents can adapt.

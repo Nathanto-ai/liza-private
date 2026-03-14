@@ -467,43 +467,43 @@ func TestClassifyError(t *testing.T) {
 			name:     "not IMPLEMENTING",
 			err:      errors.New("task is not IMPLEMENTING"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "task is not IMPLEMENTING",
 		},
 		{
 			name:     "not REVIEWING",
 			err:      errors.New("task is not REVIEWING"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "task is not REVIEWING",
 		},
 		{
 			name:     "not READY_FOR_REVIEW",
 			err:      errors.New("task is not READY_FOR_REVIEW"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "task is not READY_FOR_REVIEW",
 		},
 		{
 			name:     "not APPROVED",
 			err:      errors.New("task is not APPROVED"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "task is not APPROVED",
 		},
 		{
 			name:     "must be",
 			err:      errors.New("status must be READY"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "status must be READY",
 		},
 		{
 			name:     "is required",
 			err:      errors.New("agent_id is required"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "agent_id is required",
 		},
 		{
 			name:     "invalid task ID",
 			err:      errors.New("invalid task ID format"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "invalid task ID format",
 		},
 		// PreconditionError (typed — exposes Reason)
 		{
@@ -523,13 +523,13 @@ func TestClassifyError(t *testing.T) {
 			name:     "must include fallback",
 			err:      errors.New("commit must include test files"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "commit must include test files",
 		},
 		{
 			name:     "mandatory fallback",
 			err:      errors.New("TDD is mandatory for coding tasks"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "TDD is mandatory for coding tasks",
 		},
 		// Default: passes through the error message for agent visibility
 		{

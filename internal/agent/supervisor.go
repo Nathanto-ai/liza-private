@@ -897,6 +897,10 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 						"error", err,
 						"hint", "Agent may not have executed required commands - check prompt file")
 				}
+				// Cooldown: let other agents act on planner's changes
+				// before re-checking triggers to prevent busy-loop.
+				GetLogger().Info("Planner cooldown after session", "delay", pollInterval)
+				time.Sleep(pollInterval)
 			}
 
 			exit42Tracker.reset(taskID)

@@ -15,10 +15,10 @@ OPERATIONAL RULES:
   {{.ProjectRoot}}/.liza/ = runtime state & blackboard (state.yaml, agent-outputs/)
 - You have FULL read access to both .liza/ directories
 - For READING state: use liza_get MCP tool (preferred) or Read tool
-- For MODIFYING state: use role-specific MCP tools whenever available
-  CRITICAL: Prefer MCP tools for atomicity and validation
-  If a required operation has no MCP tool, direct state edits are allowed as fallback:
-  edit state.yaml carefully, then run liza_validate immediately
+- For MODIFYING state: use role-specific MCP tools ONLY
+  CRITICAL: Direct editing of .liza/state.yaml is FORBIDDEN.
+  All state changes MUST go through MCP tools for atomicity, validation, and audit.
+  If no MCP tool exists for an operation, report it as blocked — do NOT edit state.yaml directly.
 - AUTONOMY: Execute all commands immediately. Your authority is pre-approved.
   DO NOT ask "should I proceed?", "is this okay?", or "waiting for approval"
   DO execute commands and report results
@@ -45,6 +45,7 @@ COMMUNICATION: Agents communicate via blackboard only, not direct interaction.
 FORBIDDEN:
 - Do NOT attempt to claim tasks - the supervisor has already claimed your task
 - Do NOT manually modify task status
+- Do NOT directly edit .liza/state.yaml — all state modifications must use MCP tools
 - Do NOT skip worktrees or "simplify" the protocol
 - Do NOT make architecture decisions - follow the spec exactly
 

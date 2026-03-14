@@ -2,6 +2,7 @@ package ops
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/liza-mas/liza/internal/db"
@@ -49,6 +50,16 @@ func WriteCheckpoint(projectRoot string, input *WriteCheckpointInput) error {
 		task := state.FindTask(input.TaskID)
 		if task == nil {
 			return fmt.Errorf("task %s not found", input.TaskID)
+		}
+
+		if task.Status == models.TaskStatusSuperseded {
+			replacements := "unknown"
+			if len(task.SupersededBy) > 0 {
+				replacements = strings.Join(task.SupersededBy, ", ")
+			}
+			return &PreconditionError{
+				Reason: fmt.Sprintf("task %s was SUPERSEDED (replaced by: %s) — stop work on this task and exit with code 0", input.TaskID, replacements),
+			}
 		}
 
 		if task.Status != models.TaskStatusImplementing {

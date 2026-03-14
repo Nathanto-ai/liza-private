@@ -820,6 +820,9 @@ type Config struct {
 	IdleBackoffMaxSec  int `yaml:"idle_backoff_max_seconds,omitempty"`
 	// Copilot CLI backend configuration
 	CopilotDefaultModel string `yaml:"copilot_default_model,omitempty"`
+	// RaceDetector controls whether tests run with -race flag.
+	// nil = auto (use -race if CGO is available), false = skip -race, true = require -race.
+	RaceDetector *bool `yaml:"race_detector,omitempty"`
 
 	Extra map[string]any `yaml:",inline"`
 }

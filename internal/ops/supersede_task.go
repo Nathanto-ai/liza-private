@@ -72,6 +72,28 @@ func SupersedeTask(projectRoot, taskID string, replacementIDs []string, reason, 
 		currentTask.ReviewingBy = nil
 		currentTask.ReviewLeaseExpires = nil
 
+		// Migrate dependency references: any task depending on the
+		// superseded task now depends on its replacement(s).
+		for i := range state.Tasks {
+			t := &state.Tasks[i]
+			if t.ID == taskID {
+				continue
+			}
+			newDeps := make([]string, 0, len(t.DependsOn))
+			changed := false
+			for _, dep := range t.DependsOn {
+				if dep == taskID {
+					newDeps = append(newDeps, replacementIDs...)
+					changed = true
+				} else {
+					newDeps = append(newDeps, dep)
+				}
+			}
+			if changed {
+				t.DependsOn = newDeps
+			}
+		}
+
 		now := time.Now().UTC()
 		note := fmt.Sprintf("replaced by: %s", strings.Join(replacementIDs, ", "))
 		currentTask.History = append(currentTask.History, models.TaskHistoryEntry{
