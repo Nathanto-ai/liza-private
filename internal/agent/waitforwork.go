@@ -55,7 +55,7 @@ func waitForWork(ctx context.Context, bb *db.Blackboard, projectRoot string, rol
 	case roles.RuntimeCoder:
 		return waitForCoderWork(ctx, bb, projectRoot, config.AgentID, pollInterval, maxWait)
 	case roles.RuntimeCodeReviewer:
-		return waitForReviewerWork(ctx, bb, projectRoot, pollInterval, maxWait)
+		return waitForReviewerWork(ctx, bb, projectRoot, config.AgentID, pollInterval, maxWait)
 	case roles.RuntimePlanner:
 		return waitForPlannerWork(ctx, bb, projectRoot, pollInterval, maxWait)
 	case roles.RuntimeAuditor:
@@ -308,8 +308,26 @@ func countOwnInProgressTasks(state *models.State, agentID string) int {
 	return count
 }
 
-// waitForReviewerWork waits for reviewable tasks using event-driven detection
-func waitForReviewerWork(ctx context.Context, bb *db.Blackboard, projectRoot string, pollInterval, maxWait time.Duration) (bool, error) {
+// countOwnReviewingTasks counts tasks that are REVIEWING and assigned to this
+// reviewer agent. This enables re-invocation when the CLI session exits without
+// submitting a verdict, preventing tasks from being stuck in REVIEWING state.
+func countOwnReviewingTasks(state *models.State, agentID string) int {
+	count := 0
+	for i := range state.Tasks {
+		task := &state.Tasks[i]
+		if task.Status == models.TaskStatusReviewing &&
+			task.ReviewingBy != nil &&
+			*task.ReviewingBy == agentID {
+			count++
+		}
+	}
+	return count
+}
+
+// waitForReviewerWork waits for reviewable tasks using event-driven detection.
+// Also detects tasks already in REVIEWING state assigned to this reviewer
+// (i.e., the previous CLI session ended without submitting a verdict).
+func waitForReviewerWork(ctx context.Context, bb *db.Blackboard, projectRoot, agentID string, pollInterval, maxWait time.Duration) (bool, error) {
 	if cleared, err := ops.ClearStaleReviewClaims(projectRoot); err != nil {
 		GetLogger().Warn("Failed to clear stale review claims before reviewer wait", "error", err)
 	} else if cleared > 0 {
@@ -319,8 +337,19 @@ func waitForReviewerWork(ctx context.Context, bb *db.Blackboard, projectRoot str
 	return waitForWorkEventDriven(ctx, bb, projectRoot, pollInterval, maxWait,
 		func(s *models.State) (bool, string) {
 			count := models.CountReviewableTasks(s, models.RoleCodeReviewer)
+			ownReviewing := countOwnReviewingTasks(s, agentID)
 			logMsg := models.GetReviewerWorkDiagnostics(s)
-			return count > 0, logMsg
+
+			if ownReviewing > 0 {
+				ownMsg := fmt.Sprintf("Found %d task(s) still in REVIEWING assigned to %s (session ended without verdict)", ownReviewing, agentID)
+				if logMsg != "" {
+					logMsg = ownMsg + "; " + logMsg
+				} else {
+					logMsg = ownMsg
+				}
+			}
+
+			return count > 0 || ownReviewing > 0, logMsg
 		})
 }
 

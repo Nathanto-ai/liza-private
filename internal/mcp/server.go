@@ -338,7 +338,7 @@ func (s *Server) registerReadOnlyTools() {
 			Properties: map[string]protocol.Property{
 				"query": {
 					Type:        "string",
-					Description: "Query path. Valid top-level resources: 'tasks', 'agents', 'config', 'sprint', 'state', 'metrics', 'anomalies', 'traceability'. Use 'tasks/<id>' or 'agents/<id>' for specific items. Dot-notation fields also supported (e.g., 'config.mode', 'sprint.status').",
+					Description: "Query path. ONLY these are valid: 'tasks', 'agents', 'config', 'sprint', 'state', 'metrics', 'anomalies', 'traceability'. For a specific item use 'tasks/<id>' or 'agents/<id>'. Dot-notation fields also supported (e.g., 'config.mode', 'sprint.status'). WARNING: Subpaths like 'tasks/<id>/files' or 'tasks/<id>/diff' are NOT valid and will return an error. Use liza_exec with git commands to inspect diffs and files.",
 				},
 				"format": {
 					Type:        "string",
@@ -995,12 +995,14 @@ func roleAllowedTools(role string) map[string]bool {
 			"liza_mark_blocked":              true,
 			"liza_wt_create":                 true,
 			"liza_wt_delete":                 true,
+			"liza_exec":                      true,
 		}
 	case roles.RuntimeAuditor:
 		return map[string]bool{
 			"liza_submit_audit_finding": true,
 			"liza_analyze":              true,
 			"liza_mark_blocked":         true,
+			"liza_exec":                 true,
 		}
 	default:
 		// Unknown role: no mutation tools

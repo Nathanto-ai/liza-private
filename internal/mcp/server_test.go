@@ -212,6 +212,7 @@ func TestRoleFilteringReviewerTools(t *testing.T) {
 		"liza_get", "liza_status", "liza_validate", "liza_version",
 		"liza_submit_verdict", "liza_wt_merge", "liza_clear_stale_review_claims",
 		"liza_release_claim", "liza_mark_blocked", "liza_wt_create", "liza_wt_delete",
+		"liza_exec",
 	}
 	for _, name := range mustHave {
 		if !toolNames[name] {
@@ -220,7 +221,7 @@ func TestRoleFilteringReviewerTools(t *testing.T) {
 	}
 
 	mustNotHave := []string{
-		"liza_add_task", "liza_claim_task", "liza_exec",
+		"liza_add_task", "liza_claim_task",
 		"liza_write_checkpoint", "liza_submit_audit_finding",
 	}
 	for _, name := range mustNotHave {
@@ -243,6 +244,7 @@ func TestRoleFilteringAuditorTools(t *testing.T) {
 	mustHave := []string{
 		"liza_get", "liza_status", "liza_validate", "liza_version",
 		"liza_submit_audit_finding", "liza_analyze", "liza_mark_blocked",
+		"liza_exec",
 	}
 	for _, name := range mustHave {
 		if !toolNames[name] {
@@ -251,7 +253,7 @@ func TestRoleFilteringAuditorTools(t *testing.T) {
 	}
 
 	mustNotHave := []string{
-		"liza_exec", "liza_claim_task", "liza_add_task",
+		"liza_claim_task", "liza_add_task",
 		"liza_wt_create", "liza_wt_merge", "liza_submit_verdict",
 		"liza_write_checkpoint",
 	}

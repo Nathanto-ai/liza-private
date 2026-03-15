@@ -789,10 +789,18 @@ const defaultExecTimeout = 30 * time.Second
 // handleExec implements the liza_exec tool.
 // It runs a shell command in a specified working directory (project root or worktree).
 // Security: the working directory must resolve to within the project root.
+// Auditor restriction: only read-only commands are allowed.
 func (s *Server) handleExec(params map[string]any) (any, error) {
 	command, err := requireString(params, "command")
 	if err != nil {
 		return nil, err
+	}
+
+	// Auditor read-only enforcement: block write commands
+	if s.role == roles.RuntimeAuditor {
+		if !isReadOnlyCommand(command) {
+			return nil, fmt.Errorf("auditor exec restricted to read-only commands (go test, go vet, go build, git log/show/diff, ls, cat, find). Blocked: %q", command)
+		}
 	}
 
 	// Determine working directory
@@ -924,4 +932,77 @@ func findWindowsShell() string {
 		return "powershell"
 	}
 	return "cmd"
+}
+
+// isReadOnlyCommand checks if a shell command is read-only (safe for auditor use).
+// Allows: go test/vet/build, git log/show/diff/status/rev-parse, ls, cat, find, dir, tree, head, tail, wc, grep.
+// Blocks: anything that could modify files (rm, mv, cp, touch, tee, write, redirect operators, etc.).
+func isReadOnlyCommand(command string) bool {
+	cmd := strings.TrimSpace(command)
+	lower := strings.ToLower(cmd)
+
+	// Block obvious write operators
+	if strings.Contains(cmd, ">") || strings.Contains(cmd, ">>") {
+		return false
+	}
+
+	// Split on pipe/semicolon/&& to check each subcommand
+	separators := []string{"|", ";", "&&", "||"}
+	parts := []string{cmd}
+	for _, sep := range separators {
+		var expanded []string
+		for _, p := range parts {
+			expanded = append(expanded, strings.Split(p, sep)...)
+		}
+		parts = expanded
+	}
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		partLower := strings.ToLower(part)
+
+		// Extract the base command (first word)
+		fields := strings.Fields(partLower)
+		if len(fields) == 0 {
+			continue
+		}
+		base := fields[0]
+
+		allowed := false
+		switch {
+		case base == "go" && len(fields) > 1 &&
+			(fields[1] == "test" || fields[1] == "vet" || fields[1] == "build" || fields[1] == "version" || fields[1] == "env"):
+			allowed = true
+		case base == "git" && len(fields) > 1 &&
+			(fields[1] == "log" || fields[1] == "show" || fields[1] == "diff" || fields[1] == "status" ||
+				fields[1] == "rev-parse" || fields[1] == "branch" || fields[1] == "remote" || fields[1] == "ls-files" ||
+				fields[1] == "cat-file" || fields[1] == "describe"):
+			allowed = true
+		case base == "ls" || base == "dir" || base == "cat" || base == "find" ||
+			base == "head" || base == "tail" || base == "wc" || base == "grep" ||
+			base == "tree" || base == "file" || base == "which" || base == "where" ||
+			base == "type" || base == "echo" || base == "pwd" || base == "date":
+			allowed = true
+		case base == "get-childitem" || base == "get-content" || base == "get-item" ||
+			base == "test-path" || base == "select-string" || base == "get-location":
+			allowed = true
+		default:
+			// Check for common Go test patterns that may have flags before 'go'
+			if strings.HasPrefix(partLower, "go test") || strings.HasPrefix(partLower, "go vet") ||
+				strings.HasPrefix(partLower, "go build") {
+				allowed = true
+			}
+		}
+
+		_ = lower // suppress unused variable
+
+		if !allowed {
+			return false
+		}
+	}
+
+	return true
 }

@@ -127,6 +127,10 @@ func handleEntityQuery(state *models.State, entity string, args []string, opts I
 		// List all tasks or filter by criteria
 		// If there are additional args, treat first arg as task ID
 		if len(args) > 0 {
+			// Reject invalid subpaths (e.g., tasks/<id>/files, tasks/<id>/diff)
+			if len(args) > 1 {
+				return "", fmt.Errorf("invalid query path: 'tasks/%s/%s' — subpaths are not supported. Use 'tasks/%s' to get the full task, or use liza_exec with git commands for diffs/files", args[0], args[1], args[0])
+			}
 			taskOpts := inspectTasksOptions{Format: opts.Format}
 			result, err := inspectTask(state, args[0], taskOpts)
 			if err != nil {
@@ -144,6 +148,10 @@ func handleEntityQuery(state *models.State, entity string, args []string, opts I
 	case "agents":
 		// List all agents or show specific agent
 		if len(args) > 0 {
+			// Reject invalid subpaths (e.g., agents/<id>/status)
+			if len(args) > 1 {
+				return "", fmt.Errorf("invalid query path: 'agents/%s/%s' — subpaths are not supported. Use 'agents/%s' to get the full agent info", args[0], args[1], args[0])
+			}
 			agentOpts := inspectAgentsOptions{Format: opts.Format}
 			result, err := inspectAgent(state, args[0], agentOpts)
 			if err != nil {

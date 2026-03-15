@@ -37,7 +37,11 @@ AUDITOR RESPONSIBILITIES:
 1. Review each merged task's implementation against its spec/done-when criteria
 2. Check test coverage — are edge cases tested?
 3. Look for spec mismatches, missing tests, and quality issues
-4. Record findings using the submit audit finding tool (see below)
+4. VERIFY code compiles and tests pass before filing HIGH findings:
+   - Run: liza_exec {"command": "go vet ./...", "cwd": "<worktree-path>"}
+   - Run: liza_exec {"command": "go test ./... -count=1", "cwd": "<worktree-path>"}
+   - If go vet and go test PASS, do NOT file HIGH compilation/syntax findings
+5. Record findings using the submit audit finding tool (see below)
 
 AUDIT FINDING TOOL:
 If you have MCP tools available, use:

@@ -99,11 +99,29 @@ func SubmitAuditFinding(projectRoot string, input AuditFindingInput) (*AuditFind
 			}
 		}
 
+		// Finding deduplication: check if a similar finding (same type and severity)
+		// already exists for a task in the same remediation chain. This prevents
+		// the auditor from re-filing identical findings that create remediation loops.
+		if isDuplicateFinding(finding, task, state) {
+			// Still record the finding but force LOG_ONLY classification
+			finding.Classification = "LOG_ONLY"
+			state.AuditFindings = append(state.AuditFindings, finding)
+			return nil
+		}
+
 		// Apply deterministic supervisor classification policy.
 		// The auditor's classification is treated as a suggestion; the
 		// control-plane makes the final decision based on severity, type, and context.
 		repeats := countUnresolvedFindingsForTask(state.AuditFindings, input.TaskID)
-		finding.Classification = ClassifyFinding(finding, task.Status, repeats)
+
+		// Check if this task is a remediation task and compute chain depth
+		isRemediation := task.OriginFindingID != ""
+		depth := computeRemediationDepth(task, state.Tasks, state.AuditFindings)
+
+		finding.Classification = ClassifyFinding(finding, task.Status, repeats,
+			WithRemediationTask(isRemediation),
+			WithRemediationDepth(depth),
+		)
 
 		// Handle REOPEN_TASK classification: transition MERGED → READY
 		if finding.Classification == "REOPEN_TASK" && task.Status == models.TaskStatusMerged {
@@ -129,4 +147,57 @@ func SubmitAuditFinding(projectRoot string, input AuditFindingInput) (*AuditFind
 		Classification: finding.Classification, // deterministic, may differ from input
 		TaskReopened:   taskReopened,
 	}, nil
+}
+
+// isDuplicateFinding checks if a similar finding already exists in the remediation chain.
+// A finding is considered duplicate if there's an existing finding with the same type
+// and severity filed against a task in the same lineage (parent task, grandparent, etc.).
+func isDuplicateFinding(finding models.AuditFinding, task *models.Task, state *models.State) bool {
+	if task == nil {
+		return false
+	}
+
+	// Collect all task IDs in this remediation chain
+	chainTaskIDs := make(map[string]bool)
+	chainTaskIDs[task.ID] = true
+
+	// Walk up the chain: task → originFinding → parentTask → ...
+	current := task
+	seen := make(map[string]bool)
+	for current != nil && current.OriginFindingID != "" {
+		if seen[current.ID] {
+			break
+		}
+		seen[current.ID] = true
+
+		// Find the finding that originated this task
+		for _, f := range state.AuditFindings {
+			if f.ID == current.OriginFindingID {
+				chainTaskIDs[f.TaskID] = true
+				// Find the parent task
+				for i := range state.Tasks {
+					if state.Tasks[i].ID == f.TaskID {
+						current = &state.Tasks[i]
+						goto nextIteration
+					}
+				}
+				current = nil
+				break
+			}
+		}
+		break
+	nextIteration:
+	}
+
+	// Check if any existing finding with same type+severity exists on chain tasks
+	for _, existing := range state.AuditFindings {
+		if chainTaskIDs[existing.TaskID] &&
+			existing.Type == finding.Type &&
+			existing.Severity == finding.Severity &&
+			!existing.Resolved {
+			return true
+		}
+	}
+
+	return false
 }
