@@ -16,6 +16,7 @@ const (
 	EventFindingCreated    EventType = "FINDING_CREATED"
 	EventFindingResolved   EventType = "FINDING_RESOLVED"
 	EventBudgetExceeded    EventType = "BUDGET_EXCEEDED"
+	EventBudgetWarning     EventType = "BUDGET_WARNING"
 	EventAnomalyDetected   EventType = "ANOMALY_DETECTED"
 	EventSpecValidated     EventType = "SPEC_VALIDATED"
 	EventVerifyRun         EventType = "VERIFY_RUN"

@@ -94,6 +94,13 @@ func (se *supervisorEmitter) emitBudgetExceeded(agentID, reason string) {
 		WithData("reason", reason))
 }
 
+// emitBudgetWarning emits a BUDGET_WARNING event when usage approaches the limit.
+func (se *supervisorEmitter) emitBudgetWarning(agentID, message string) {
+	se.Emit(observability.NewEvent(observability.EventBudgetWarning, "Budget approaching limit").
+		WithAgent(agentID).
+		WithData("warning", message))
+}
+
 // emitAnomalyDetected emits an ANOMALY_DETECTED event when stagnation or
 // a no-diff retry pattern is found by the AnomalyDetector.
 func (se *supervisorEmitter) emitAnomalyDetected(agentID string, a runtime.Anomaly) {

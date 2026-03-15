@@ -230,3 +230,81 @@ func TestNewBudgetTrackerFromConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestBudgetTracker_CheckWithWarning_NoWarning(t *testing.T) {
+	t.Parallel()
+
+	bt := NewBudgetTracker(20, 10, time.Hour)
+	// 3 of 20 iterations = 15%, well under 80%
+	for i := 0; i < 3; i++ {
+		bt.RecordIteration()
+	}
+
+	warning, err := bt.CheckWithWarning(bt.StartTime, 0.8)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if warning != nil {
+		t.Errorf("expected no warning at 15%%, got: %s", warning.Message)
+	}
+}
+
+func TestBudgetTracker_CheckWithWarning_IterationWarning(t *testing.T) {
+	t.Parallel()
+
+	bt := NewBudgetTracker(20, 10, time.Hour)
+	// 16 of 20 iterations = 80%, at threshold
+	for i := 0; i < 16; i++ {
+		bt.RecordIteration()
+	}
+
+	warning, err := bt.CheckWithWarning(bt.StartTime, 0.8)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if warning == nil {
+		t.Fatal("expected warning at 80%, got nil")
+	}
+	if !warning.IterationWarning {
+		t.Error("expected IterationWarning=true")
+	}
+	if warning.Message == "" {
+		t.Error("expected non-empty warning message")
+	}
+}
+
+func TestBudgetTracker_CheckWithWarning_RuntimeWarning(t *testing.T) {
+	t.Parallel()
+
+	bt := NewBudgetTracker(100, 100, time.Hour)
+	// Simulate 50 minutes into a 60 minute budget = 83%
+	now := bt.StartTime.Add(50 * time.Minute)
+
+	warning, err := bt.CheckWithWarning(now, 0.8)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if warning == nil {
+		t.Fatal("expected warning at 83% runtime, got nil")
+	}
+	if !warning.RuntimeWarning {
+		t.Error("expected RuntimeWarning=true")
+	}
+}
+
+func TestBudgetTracker_CheckWithWarning_Exceeded(t *testing.T) {
+	t.Parallel()
+
+	bt := NewBudgetTracker(5, 100, time.Hour)
+	for i := 0; i < 5; i++ {
+		bt.RecordIteration()
+	}
+
+	warning, err := bt.CheckWithWarning(bt.StartTime, 0.8)
+	if err == nil {
+		t.Fatal("expected error for exceeded budget, got nil")
+	}
+	if warning != nil {
+		t.Errorf("expected nil warning when budget exceeded, got: %v", warning)
+	}
+}

@@ -63,12 +63,27 @@ func TestIsTestFile(t *testing.T) {
 		{"Java Tests suffix", "FooTests.java", true},
 		{"Java Test prefix", "TestFoo.java", true},
 		{"Java non-test", "Foo.java", false},
+		// Java utility class exclusions (false positives from broad patterns)
+		{"Java TestUtils excluded", "TestUtils.java", false},
+		{"Java TestHelper excluded", "TestHelper.java", false},
+		{"Java TestHelpers excluded", "TestHelpers.java", false},
+		{"Java TestConfig excluded", "TestConfig.java", false},
+		{"Java TestFactory excluded", "TestFactory.java", false},
+		{"Java TestFixture excluded", "TestFixture.java", false},
+		{"Java TestData excluded", "TestData.java", false},
+		{"Java TestBase excluded", "TestBase.java", false},
+		// Java: real test classes still pass
+		{"Java TestValidation passes", "TestValidation.java", true},
+		{"Java UserTest passes", "UserTest.java", true},
 
 		// Kotlin
 		{"Kotlin Test suffix", "FooTest.kt", true},
 		{"Kotlin Tests suffix", "FooTests.kt", true},
 		{"Kotlin Test prefix", "TestFoo.kt", true},
 		{"Kotlin non-test", "Foo.kt", false},
+		// Kotlin utility class exclusions
+		{"Kotlin TestUtils excluded", "TestUtils.kt", false},
+		{"Kotlin TestHelper excluded", "TestHelper.kt", false},
 
 		// Rust
 		{"Rust _test.rs", "foo_test.rs", true},
@@ -80,6 +95,9 @@ func TestIsTestFile(t *testing.T) {
 		{"Empty string", "", false},
 		{"No extension", "test_file", false},
 		{"Partial match", "test.go", false},
+		// Windows backslash paths should be normalized
+		{"Windows backslash __tests__", "src\\__tests__\\foo.js", true},
+		{"Windows backslash tests/ rust", "crate\\tests\\foo.rs", true},
 	}
 
 	for _, tt := range tests {

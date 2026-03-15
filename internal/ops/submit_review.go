@@ -114,7 +114,13 @@ func SubmitForReview(projectRoot, taskID, commitSHA, agentID string) (*SubmitFor
 			return nil, fmt.Errorf("failed to check test files: %w", err)
 		}
 		if !hasTests && GetTDDWaiver(task.History, agentID) == "" {
-			return nil, &PreconditionError{Reason: fmt.Sprintf("task %s: code tasks must include test files (e.g. *_test.go, *.test.ts, test_*.py) — TDD is mandatory", taskID)}
+			return nil, &PreconditionError{Reason: fmt.Sprintf(
+				"task %s: code tasks must include test files — TDD is mandatory. "+
+					"Expected patterns: *_test.go, *.test.{js,ts,jsx,tsx}, *.spec.{js,ts,jsx,tsx}, "+
+					"test_*.py, *_test.py, test_*.sh, *_test.sh, *_test.rb, *_spec.rb, "+
+					"*Test.java, *Test.kt, *_test.rs, or files under __tests__/ or tests/ directories. "+
+					"Submit waiver via liza_write_checkpoint with tdd_not_required if tests are not applicable",
+				taskID)}
 		}
 	}
 

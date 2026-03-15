@@ -450,7 +450,9 @@ func TestBlackboardLockTimeout(t *testing.T) {
 	if err == nil {
 		t.Error("Expected timeout error, got nil")
 	}
-	if elapsed < 900*time.Millisecond || elapsed > 1200*time.Millisecond {
+	// On Windows the lock polling interval is 300ms (vs 100ms on Linux),
+	// so the actual timeout can overshoot by up to one polling interval.
+	if elapsed < 900*time.Millisecond || elapsed > 1500*time.Millisecond {
 		t.Errorf("Timeout duration unexpected: %v (expected ~1s)", elapsed)
 	}
 	close(releaseLock)

@@ -339,3 +339,79 @@ func TestWithLockStaleLockRecovery(t *testing.T) {
 		t.Error("PID file should have been updated with new PID, not the stale one")
 	}
 }
+
+func TestWithRetryBackoff_Success(t *testing.T) {
+	dir := t.TempDir()
+	protectedPath := filepath.Join(dir, "data.yaml")
+
+	fl := New(protectedPath)
+
+	callCount := 0
+	err := fl.WithRetryBackoff("test-retry", 3, func() error {
+		callCount++
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("WithRetryBackoff() error = %v", err)
+	}
+	if callCount != 1 {
+		t.Errorf("expected 1 call, got %d", callCount)
+	}
+}
+
+func TestWithRetryBackoff_NonRetryableError(t *testing.T) {
+	dir := t.TempDir()
+	protectedPath := filepath.Join(dir, "data.yaml")
+
+	fl := New(protectedPath)
+
+	// Acquire lock and hold it so inner fn will never run — but we want to test
+	// that non-retryable errors from fn itself bubble up immediately.
+	// Instead, test that fn errors propagate correctly:
+	callCount := 0
+	err := fl.WithRetryBackoff("test-noretry", 3, func() error {
+		callCount++
+		return &LockError{Type: LockErrorPermission, Message: "access denied"}
+	})
+
+	// The fn ran successfully under lock but returned a permission error.
+	// WithRetryBackoff wraps WithLockOperation: fn errors are simply returned by
+	// WithLockOperation as-is (not a lock acquisition failure).
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	// Should only call once — fn error returned directly (not retried by WithRetryBackoff since
+	// WithLockOperation itself succeeded; the error is from fn, not lock acquisition)
+	if callCount != 1 {
+		t.Errorf("expected 1 call (non-retryable), got %d", callCount)
+	}
+}
+
+func TestWithRetryBackoff_ZeroRetries(t *testing.T) {
+	dir := t.TempDir()
+	protectedPath := filepath.Join(dir, "data.yaml")
+
+	fl := New(protectedPath)
+
+	callCount := 0
+	err := fl.WithRetryBackoff("test-zero", 0, func() error {
+		callCount++
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("WithRetryBackoff(0 retries) error = %v", err)
+	}
+	if callCount != 1 {
+		t.Errorf("expected 1 call with 0 retries, got %d", callCount)
+	}
+}
+
+func TestEffectiveLockCheckInterval(t *testing.T) {
+	interval := effectiveLockCheckInterval()
+	if interval != LockCheckInterval && interval != WindowsLockCheckInterval {
+		t.Errorf("effectiveLockCheckInterval() = %v, want %v or %v",
+			interval, LockCheckInterval, WindowsLockCheckInterval)
+	}
+}

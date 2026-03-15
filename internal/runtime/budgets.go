@@ -93,3 +93,44 @@ func (bt *BudgetTracker) Check(now time.Time) error {
 	}
 	return nil
 }
+
+// BudgetWarning describes which budget dimensions are approaching their limit.
+type BudgetWarning struct {
+	IterationWarning bool
+	TaskWarning      bool
+	RuntimeWarning   bool
+	Message          string
+}
+
+// CheckWithWarning checks budgets and returns a warning if any dimension
+// exceeds the given threshold (e.g. 0.8 for 80%), plus an error if any
+// budget is fully exceeded. Both can be non-nil simultaneously.
+func (bt *BudgetTracker) CheckWithWarning(now time.Time, warnThreshold float64) (*BudgetWarning, error) {
+	// Hard check first
+	if err := bt.Check(now); err != nil {
+		return nil, err
+	}
+
+	var w BudgetWarning
+	if bt.MaxIterations > 0 && float64(bt.iterations)/float64(bt.MaxIterations) >= warnThreshold {
+		w.IterationWarning = true
+	}
+	if bt.MaxTasks > 0 && float64(bt.tasksGenerated)/float64(bt.MaxTasks) >= warnThreshold {
+		w.TaskWarning = true
+	}
+	elapsed := now.Sub(bt.StartTime)
+	if bt.MaxRuntime > 0 && float64(elapsed)/float64(bt.MaxRuntime) >= warnThreshold {
+		w.RuntimeWarning = true
+	}
+
+	if w.IterationWarning || w.TaskWarning || w.RuntimeWarning {
+		w.Message = fmt.Sprintf("budget warning (%.0f%% threshold): iterations=%d/%d tasks=%d/%d runtime=%v/%v",
+			warnThreshold*100,
+			bt.iterations, bt.MaxIterations,
+			bt.tasksGenerated, bt.MaxTasks,
+			elapsed.Truncate(time.Second), bt.MaxRuntime)
+		return &w, nil
+	}
+
+	return nil, nil
+}

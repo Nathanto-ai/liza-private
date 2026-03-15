@@ -706,13 +706,18 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 
 		// Budget check — enforce iteration, runtime, and task-generation limits
 		budget.RecordIteration()
-		if err := budget.Check(time.Now().UTC()); err != nil {
+		if warning, budgetErr := budget.CheckWithWarning(time.Now().UTC(), 0.8); budgetErr != nil {
 			GetLogger().Warn("Budget exceeded, supervisor shutting down",
-				"reason", err.Error(),
+				"reason", budgetErr.Error(),
 				"iterations", budget.Iterations(),
 				"agent_id", config.AgentID)
-			events.emitBudgetExceeded(config.AgentID, err.Error())
+			events.emitBudgetExceeded(config.AgentID, budgetErr.Error())
 			return nil
+		} else if warning != nil {
+			GetLogger().Warn("Budget approaching limit",
+				"warning", warning.Message,
+				"agent_id", config.AgentID)
+			events.emitBudgetWarning(config.AgentID, warning.Message)
 		}
 
 		// Anomaly detection — check for stagnation / no-diff patterns

@@ -102,9 +102,10 @@ func (bb *Blackboard) GetMetricsRecorder() *filelock.MetricsRecorder {
 }
 
 // Read returns the current state under an exclusive file lock.
+// Uses retry-with-backoff to handle transient lock failures (e.g. Windows sharing violations).
 func (bb *Blackboard) Read() (*models.State, error) {
 	var state models.State
-	err := bb.fileLock.WithLockOperation("read", func() error {
+	err := bb.fileLock.WithRetryBackoff("read", filelock.DefaultRetryAttempts, func() error {
 		data, err := os.ReadFile(bb.statePath)
 		if err != nil {
 			return err
@@ -236,9 +237,10 @@ func (bb *Blackboard) writeStateData(data []byte) error {
 	return nil
 }
 
-// Write writes the state to the state file atomically with fsync
+// Write writes the state to the state file atomically with fsync.
+// Uses retry-with-backoff to handle transient lock failures.
 func (bb *Blackboard) Write(state *models.State) error {
-	err := bb.fileLock.WithLockOperation("write", func() error {
+	err := bb.fileLock.WithRetryBackoff("write", filelock.DefaultRetryAttempts, func() error {
 		data, err := yaml.Marshal(state)
 		if err != nil {
 			return fmt.Errorf("failed to marshal state: %w", err)
@@ -253,9 +255,10 @@ func (bb *Blackboard) Write(state *models.State) error {
 	return err
 }
 
-// Modify performs an atomic read-modify-write operation
+// Modify performs an atomic read-modify-write operation.
+// Uses retry-with-backoff to handle transient lock failures.
 func (bb *Blackboard) Modify(fn func(*models.State) error) error {
-	err := bb.fileLock.WithLockOperation("modify", func() error {
+	err := bb.fileLock.WithRetryBackoff("modify", filelock.DefaultRetryAttempts, func() error {
 		data, err := os.ReadFile(bb.statePath)
 		if err != nil {
 			return fmt.Errorf("failed to read state: %w", err)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -15,7 +16,25 @@ const (
 	DefaultLockTimeout = 10 * time.Second
 	// LockCheckInterval is how often to retry lock acquisition.
 	LockCheckInterval = 100 * time.Millisecond
+	// WindowsLockCheckInterval is the lock polling interval on Windows,
+	// where file sharing violations require longer back-off.
+	WindowsLockCheckInterval = 300 * time.Millisecond
+
+	// DefaultRetryAttempts is how many times WithRetryBackoff retries on transient errors.
+	DefaultRetryAttempts = 3
+	// DefaultRetryBaseDelay is the initial backoff delay between retries.
+	DefaultRetryBaseDelay = 500 * time.Millisecond
+	// DefaultRetryMaxDelay caps the exponential backoff.
+	DefaultRetryMaxDelay = 5 * time.Second
 )
+
+// effectiveLockCheckInterval returns the platform-appropriate polling interval.
+func effectiveLockCheckInterval() time.Duration {
+	if runtime.GOOS == "windows" {
+		return WindowsLockCheckInterval
+	}
+	return LockCheckInterval
+}
 
 // FileLock provides file-based mutual exclusion with stale lock detection.
 //
@@ -134,6 +153,7 @@ func (fl *FileLock) WithLockOperation(operation string, fn func() error) error {
 	deadline := now.Add(fl.lockTimeout)
 	locked := false
 
+	checkInterval := effectiveLockCheckInterval()
 	for time.Now().Before(deadline) {
 		lock, err = fl.acquireLockWithPID()
 		if err == nil {
@@ -148,7 +168,7 @@ func (fl *FileLock) WithLockOperation(operation string, fn func() error) error {
 				return lockErr
 			}
 		}
-		time.Sleep(LockCheckInterval)
+		time.Sleep(checkInterval)
 	}
 
 	if !locked {
@@ -196,4 +216,50 @@ func (fl *FileLock) WithLockOperation(operation string, fn func() error) error {
 	}()
 
 	return fn()
+}
+
+// WithRetryBackoff executes fn under a file lock, retrying with exponential
+// backoff on transient lock errors (e.g. stale locks). Errors from fn itself,
+// lock timeouts, and permanent lock errors (permission, disk-full) are
+// returned immediately without retry. maxRetries=0 means a single attempt.
+func (fl *FileLock) WithRetryBackoff(operation string, maxRetries int, fn func() error) error {
+	var lastErr error
+	delay := DefaultRetryBaseDelay
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		lastErr = fl.WithLockOperation(operation, fn)
+		if lastErr == nil {
+			return nil
+		}
+
+		// Only retry classified lock errors that are transient.
+		// Errors from fn() (non-LockError) are returned immediately.
+		var lockErr *LockError
+		if !errors.As(lastErr, &lockErr) {
+			return lastErr
+		}
+
+		// Timeout and permanent lock errors are not retryable.
+		// Timeout: WithLockOperation already has an internal polling loop;
+		// if the full timeout expired, retrying is unlikely to help.
+		switch lockErr.Type {
+		case LockErrorTimeout, LockErrorPermission, LockErrorDiskFull, LockErrorFilesystem:
+			return lastErr
+		}
+
+		// Retryable: LockErrorStale (cleanup may succeed on next attempt)
+
+		// Last attempt — don't sleep
+		if attempt == maxRetries {
+			break
+		}
+
+		time.Sleep(delay)
+		delay *= 2
+		if delay > DefaultRetryMaxDelay {
+			delay = DefaultRetryMaxDelay
+		}
+	}
+
+	return fmt.Errorf("lock operation %q failed after %d retries: %w", operation, maxRetries, lastErr)
 }
