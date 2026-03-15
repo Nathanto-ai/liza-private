@@ -176,6 +176,20 @@ func SubmitVerdict(projectRoot, taskID, verdict, reason, agentID string) (*Verdi
 		return nil, fmt.Errorf("failed to submit verdict: %w", err)
 	}
 
+	// Post-write verification: re-read state and confirm the status change
+	// persisted. This catches silent write failures due to concurrent state
+	// overwrites that could leave a task stuck in REVIEWING.
+	postState, readErr := bb.Read()
+	if readErr == nil {
+		postTask := postState.FindTask(taskID)
+		if postTask != nil && postTask.Status == models.TaskStatusReviewing {
+			// The write appeared to succeed but the status didn't change.
+			// This indicates a concurrent overwrite. Return an error so
+			// the caller can surface the issue.
+			return nil, fmt.Errorf("verdict write verification failed: task %s still in REVIEWING after %s verdict — possible concurrent state overwrite", taskID, verdict)
+		}
+	}
+
 	return &VerdictResult{
 		TaskID:             taskID,
 		Verdict:            verdict,

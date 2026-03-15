@@ -327,3 +327,100 @@ func TestAddTask_OriginFindingAutoLink(t *testing.T) {
 		t.Errorf("task OriginFindingID = %q, want %q", task.OriginFindingID, "cli-001")
 	}
 }
+
+// TestAddTask_RejectsRemediationWhileOriginActive verifies that creating a
+// remediation task is blocked when the origin task is still being worked on.
+// Regression test for Fix 30 (V&V Run 5 Issue #2): planner created redundant
+// fix tasks while coder was already iterating on the same issue.
+func TestAddTask_RejectsRemediationWhileOriginActive(t *testing.T) {
+	t.Parallel()
+
+	activeStatuses := []models.TaskStatus{
+		models.TaskStatusImplementing,
+		models.TaskStatusReadyForReview,
+		models.TaskStatusReviewing,
+		models.TaskStatusRejected,
+	}
+
+	for _, status := range activeStatuses {
+		status := status
+		t.Run("origin_"+string(status), func(t *testing.T) {
+			t.Parallel()
+
+			state := testhelpers.CreateValidState()
+			state.Tasks = append(state.Tasks, models.Task{
+				ID:          "origin-task",
+				Description: "Implement storage layer",
+				Status:      status,
+				Priority:    1,
+				Scope:       "storage",
+				SpecRef:     "specs/vision.md",
+				DoneWhen:    "tests pass",
+				Created:     state.Goal.Created,
+				History:     []models.TaskHistoryEntry{},
+			})
+
+			statePath, logPath := setupForAddTask(t, state)
+
+			input := &AddTaskInput{
+				ID:           "remediate-storage",
+				Description:  "Fix storage layer race condition",
+				SpecRef:      "specs/vision.md",
+				DoneWhen:     "no race condition",
+				Scope:        "storage",
+				Priority:     2,
+				OriginTaskID: "origin-task",
+			}
+
+			_, err := AddTask(statePath, logPath, input, "planner-1")
+			if err == nil {
+				t.Fatalf("expected error when origin task is %s, got nil", status)
+			}
+			if !strings.Contains(err.Error(), "still active") {
+				t.Errorf("error = %q, want containing 'still active'", err.Error())
+			}
+		})
+	}
+}
+
+// TestAddTask_AllowsRemediationWhenOriginBlocked verifies that remediation tasks
+// ARE allowed when the origin task has reached a terminal-like state (BLOCKED).
+func TestAddTask_AllowsRemediationWhenOriginBlocked(t *testing.T) {
+	t.Parallel()
+
+	state := testhelpers.CreateValidState()
+	blockedReason := "crash limit exceeded"
+	state.Tasks = append(state.Tasks, models.Task{
+		ID:               "origin-task",
+		Description:      "Implement storage layer",
+		Status:           models.TaskStatusBlocked,
+		Priority:         1,
+		Scope:            "storage",
+		SpecRef:          "specs/vision.md",
+		DoneWhen:         "tests pass",
+		BlockedReason:    &blockedReason,
+		BlockedQuestions: []string{"Why does storage crash?"},
+		Created:          state.Goal.Created,
+		History:          []models.TaskHistoryEntry{},
+	})
+
+	statePath, logPath := setupForAddTask(t, state)
+
+	input := &AddTaskInput{
+		ID:           "remediate-storage",
+		Description:  "Fix storage layer race condition",
+		SpecRef:      "specs/vision.md",
+		DoneWhen:     "no race condition",
+		Scope:        "storage",
+		Priority:     2,
+		OriginTaskID: "origin-task",
+	}
+
+	result, err := AddTask(statePath, logPath, input, "planner-1")
+	if err != nil {
+		t.Fatalf("expected success when origin task is BLOCKED, got: %v", err)
+	}
+	if result.TaskID != "remediate-storage" {
+		t.Errorf("unexpected task ID: %s", result.TaskID)
+	}
+}

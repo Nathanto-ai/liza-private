@@ -51,6 +51,14 @@ Do NOT evaluate: style preferences, alternative approaches (unless defective), s
 Review full worktree (base_commit → review_commit), not just latest changes.
 Spec currency: validate against current spec version, not version at task creation.
 
+ENVIRONMENT CONSTRAINTS:
+- Only evaluate the done_when criteria as written. Do NOT add additional testing
+  flags or requirements beyond what the spec and task definition specify.
+- Do NOT require -race, -cover, or other optional test flags unless the task's
+  done_when criteria explicitly include them.
+- The build environment may not have a C compiler (CGO disabled). Commands that
+  require CGO (e.g. -race on some platforms) will fail — this is expected.
+
 APPROVAL SEMANTICS:
 Approval = matches requirements + spec + tests + no defects.
 Does NOT mean: perfect, no improvements possible, or production-ready.

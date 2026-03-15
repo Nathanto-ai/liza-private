@@ -85,7 +85,7 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | `planner_poll_interval` | 60 | — | — | seconds | Planner polling interval |
 | `planner_max_wait` | 1800 | — | — | seconds | Max planner idle before exit |
 | `reviewer_poll_interval` | 30 | — | — | seconds | Reviewer polling interval |
-| `reviewer_max_wait` | 1800 | — | — | seconds | Max reviewer idle before exit |
+| `reviewer_max_wait` | 1800 | — | — | seconds | Max reviewer idle before backoff retry |
 | `auditor_poll_interval` | 60 | — | — | seconds | Auditor polling interval |
 | `auditor_max_wait` | 1800 | — | — | seconds | Max auditor idle before exit |
 | `max_tasks_per_run` | 10 | 1 | 50 | count | Max finding-originated tasks per run (runaway protection) |

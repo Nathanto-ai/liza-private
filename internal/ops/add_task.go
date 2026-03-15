@@ -133,6 +133,26 @@ func AddTask(statePath, logPath string, input *AddTaskInput, plannerID string) (
 		}
 	}
 
+	// Reject remediation tasks when the origin task is still being actively
+	// worked on. If a coder is already iterating on a rejected/failed task,
+	// creating a new remediation task is redundant and wastes resources.
+	if input.OriginTaskID != "" {
+		for _, existing := range state.Tasks {
+			if existing.ID != input.OriginTaskID {
+				continue
+			}
+			if existing.Status == models.TaskStatusImplementing ||
+				existing.Status == models.TaskStatusReadyForReview ||
+				existing.Status == models.TaskStatusReviewing ||
+				existing.Status == models.TaskStatusRejected {
+				return nil, fmt.Errorf(
+					"task %s: origin task %s is still active (status: %s) — wait for it to complete or be blocked before creating remediation",
+					input.ID, existing.ID, existing.Status,
+				)
+			}
+		}
+	}
+
 	// Enforce stricter deduplication (description + scope) when config flag enabled
 	if state.Config.EnforceDeduplication {
 		for _, existing := range state.Tasks {

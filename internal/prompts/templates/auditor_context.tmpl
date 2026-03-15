@@ -6,6 +6,9 @@ test coverage, code quality, and architectural consistency.
 
 AGENT ID: {{.Config.AgentID}}
 PROJECT ROOT: {{.Config.ProjectRoot}}
+{{- if .Config.IntegrationBranch}}
+INTEGRATION BRANCH: {{.Config.IntegrationBranch}}
+{{- end}}
 
 METRICS:
 - Total tasks: {{.TotalTasks}}
@@ -38,9 +41,15 @@ AUDITOR RESPONSIBILITIES:
 2. Check test coverage — are edge cases tested?
 3. Look for spec mismatches, missing tests, and quality issues
 4. VERIFY code compiles and tests pass before filing HIGH findings:
-   - Run: liza_exec {"command": "go vet ./...", "cwd": "<worktree-path>"}
-   - Run: liza_exec {"command": "go test ./... -count=1", "cwd": "<worktree-path>"}
-   - If go vet and go test PASS, do NOT file HIGH compilation/syntax findings
+{{- if .Config.IntegrationBranch}}
+   - IMPORTANT: Merged code lives on the integration branch ({{.Config.IntegrationBranch}}), NOT master/main.
+     Verify from the integration branch: liza_exec {"command": "git checkout {{.Config.IntegrationBranch}}", "cwd": "{{.Config.ProjectRoot}}"}
+{{- end}}
+   - Run the project's build/lint tool from the task's worktree or integration branch.
+   - Run the project's test suite from the task's worktree or integration branch.
+   - Use the task's verify_commands if available. Otherwise detect the project type
+     (e.g. go.mod → go vet + go test, package.json → npm test, pyproject.toml → pytest).
+   - If build and tests PASS, do NOT file HIGH compilation/syntax findings
 5. Record findings using the submit audit finding tool (see below)
 
 AUDIT FINDING TOOL:

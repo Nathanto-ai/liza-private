@@ -37,8 +37,9 @@ type ReviewerContextConfig struct {
 
 // AuditorContextConfig contains configuration for building auditor context
 type AuditorContextConfig struct {
-	ProjectRoot string
-	AgentID     string
+	ProjectRoot       string
+	AgentID           string
+	IntegrationBranch string
 }
 
 // BuildBasePrompt creates the base bootstrap prompt for all agents

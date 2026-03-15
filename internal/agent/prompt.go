@@ -100,8 +100,9 @@ func buildPrompt(state *models.State, config SupervisorConfig, taskID string) (s
 
 	case roles.RuntimeAuditor:
 		auditorConfig := prompts.AuditorContextConfig{
-			ProjectRoot: config.ProjectRoot,
-			AgentID:     config.AgentID,
+			ProjectRoot:       config.ProjectRoot,
+			AgentID:           config.AgentID,
+			IntegrationBranch: state.Config.IntegrationBranch,
 		}
 		context, err := prompts.BuildAuditorContext(state, auditorConfig)
 		if err != nil {

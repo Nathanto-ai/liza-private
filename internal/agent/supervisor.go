@@ -704,8 +704,9 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 			return nil
 		}
 
-		// Budget check — enforce iteration, runtime, and task-generation limits
-		budget.RecordIteration()
+		// Budget check — enforce runtime and task-generation limits.
+		// Note: iteration is recorded AFTER productive work (agent execution),
+		// not here, so idle polls don't consume the iteration budget.
 		if warning, budgetErr := budget.CheckWithWarning(time.Now().UTC(), 0.8); budgetErr != nil {
 			GetLogger().Warn("Budget exceeded, supervisor shutting down",
 				"reason", budgetErr.Error(),
@@ -788,14 +789,15 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 			return err
 		}
 		if !hasWork {
-			// Auditor stays idle and re-waits: it should not exit after a
-			// normal no-work timeout. Other long-lived agents (planner)
-			// already re-enter via wake triggers; auditor should behave
-			// the same way—only exiting on shutdown/abort/budget/anomaly.
-			if config.Role == roles.RuntimeAuditor {
+			// Auditor and reviewer stay idle and re-wait: they should not exit
+			// after a normal no-work timeout. Planner already re-enters via
+			// wake triggers. Long-lived agents use exponential backoff to
+			// avoid busy-polling while preserving iteration budget.
+			if config.Role == roles.RuntimeAuditor || config.Role == roles.RuntimeCodeReviewer {
 				consecutiveIdleCount++
 				backoff := computeIdleBackoff(consecutiveIdleCount, state.Config)
-				GetLogger().Info("Auditor: no work available, backing off before retry",
+				roleName := string(config.Role)
+				GetLogger().Info(roleName+": no work available, backing off before retry",
 					"idle_count", consecutiveIdleCount,
 					"backoff", backoff)
 				time.Sleep(backoff)
@@ -869,6 +871,10 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		if err := resetAgentAfterExit(bb, config.AgentID); err != nil {
 			GetLogger().Warn("Failed to reset agent status after exit", "error", err, "agent_id", config.AgentID)
 		}
+
+		// Record productive iteration — only after agent actually executed.
+		// Idle polls (no work found) do NOT count toward the iteration budget.
+		budget.RecordIteration()
 
 		// Handle exit code
 		// Record iteration for anomaly detection
