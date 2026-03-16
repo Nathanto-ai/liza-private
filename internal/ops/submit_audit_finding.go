@@ -10,6 +10,11 @@ import (
 	"github.com/liza-mas/liza/internal/paths"
 )
 
+// maxVerificationGapFindings is the maximum number of VERIFICATION_GAP findings
+// that can trigger remediation tasks per run. Beyond this limit, new VERIFICATION_GAP
+// findings are downgraded to LOG_ONLY to prevent remediation noise (Fix 40).
+const maxVerificationGapFindings = 2
+
 // AuditFindingInput holds the parameters for submitting an audit finding.
 type AuditFindingInput struct {
 	FindingID         string
@@ -107,6 +112,24 @@ func SubmitAuditFinding(projectRoot string, input AuditFindingInput) (*AuditFind
 			finding.Classification = "LOG_ONLY"
 			state.AuditFindings = append(state.AuditFindings, finding)
 			return nil
+		}
+
+		// Fix 40: Verification-gap circuit breaker. If the auditor has already filed
+		// MaxVerificationGapFindings VERIFICATION_GAP findings in this run, force any
+		// further VERIFICATION_GAP findings to LOG_ONLY to prevent remediation noise.
+		if finding.Type == "VERIFICATION_GAP" {
+			limit := maxVerificationGapFindings
+			count := 0
+			for _, existing := range state.AuditFindings {
+				if existing.Type == "VERIFICATION_GAP" && existing.Classification != "LOG_ONLY" {
+					count++
+				}
+			}
+			if count >= limit {
+				finding.Classification = "LOG_ONLY"
+				state.AuditFindings = append(state.AuditFindings, finding)
+				return nil
+			}
 		}
 
 		// Apply deterministic supervisor classification policy.

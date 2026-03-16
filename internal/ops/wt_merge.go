@@ -402,21 +402,47 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 		verifyDir := filepath.Join(projectRoot, ".worktrees", taskID+"-verify")
 		addCmd := exec.Command("git", "worktree", "add", "--detach", verifyDir, mergeCommit)
 		addCmd.Dir = projectRoot
+		verifyWorktreeCreated := true
 		if addErr := addCmd.Run(); addErr != nil {
-			log.Printf("wt-merge %s: failed to create verify worktree: %v — falling back to task worktree", taskID, addErr)
-			verifyDir = *task.Worktree
+			log.Printf("wt-merge %s: failed to create verify worktree: %v — trying fallbacks", taskID, addErr)
+			verifyWorktreeCreated = false
+			// Fallback chain: task worktree → project root
+			if task.Worktree != nil {
+				if _, statErr := os.Stat(*task.Worktree); statErr == nil {
+					verifyDir = *task.Worktree
+				} else {
+					log.Printf("wt-merge %s: task worktree %s not found, falling back to project root", taskID, *task.Worktree)
+					verifyDir = projectRoot
+				}
+			} else {
+				verifyDir = projectRoot
+			}
 		}
 		defer func() {
-			// Clean up the temporary verify worktree
-			rmCmd := exec.Command("git", "worktree", "remove", "--force", verifyDir)
-			rmCmd.Dir = projectRoot
-			_ = rmCmd.Run()
+			// Clean up the temporary verify worktree (only if we created it)
+			if verifyWorktreeCreated {
+				rmCmd := exec.Command("git", "worktree", "remove", "--force", verifyDir)
+				rmCmd.Dir = projectRoot
+				_ = rmCmd.Run()
+			}
 		}()
 
 		// Use the shared verification executor (same path as post-submission verify)
 		cfg := verify.DefaultConfig()
 		vResult := verify.RunVerification(context.Background(), task.VerifyCommands, verifyDir, cfg)
 		verifyResult = toVerificationResult(vResult, "merge")
+
+		// Fix 38: If verification fails and we weren't running from project root,
+		// retry from project root before giving up.
+		if !verifyResult.Passed && verifyDir != projectRoot {
+			log.Printf("wt-merge %s: verify_commands failed in %s, retrying from project root", taskID, verifyDir)
+			retryResult := verify.RunVerification(context.Background(), task.VerifyCommands, projectRoot, cfg)
+			retryVerify := toVerificationResult(retryResult, "merge-retry-root")
+			if retryVerify.Passed {
+				log.Printf("wt-merge %s: verify_commands passed from project root (worktree path was stale)", taskID)
+				verifyResult = retryVerify
+			}
+		}
 
 		if !verifyResult.Passed {
 			// Rollback merge if verification fails

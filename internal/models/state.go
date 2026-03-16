@@ -815,6 +815,8 @@ type Config struct {
 	RequireAuditForSprintClose bool       `yaml:"require_audit_for_sprint_close,omitempty"`
 	// Stuck-coder detection: block task after N iterations with no progress
 	MaxIterationsWithoutProgress int `yaml:"max_iterations_without_progress,omitempty"`
+	// Block task after N consecutive coder exits without IMPLEMENTING→REVIEWING submission
+	MaxNoSubmitIterations int `yaml:"max_no_submit_iterations,omitempty"`
 
 	// Idle agent backoff: exponential delay when no work is available
 	IdleBackoffBaseSec int `yaml:"idle_backoff_base_seconds,omitempty"`

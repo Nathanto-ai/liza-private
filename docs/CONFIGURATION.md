@@ -102,6 +102,7 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | `require_audit_for_sprint_close` | false | — | — | bool | Require audit pass before closing sprint |
 | `diagnostic_logging` | false | — | — | bool | Enable verbose diagnostic log output |
 | `mcp_inactivity_timeout` | 600 | -1 | 7200 | seconds | Max seconds with no MCP tool calls before supervisor kills agent (-1 disables) |
+| `max_no_submit_iterations` | 3 | 1 | 20 | count | Max consecutive coder exits without calling liza_submit_for_review before task BLOCKED (Fix 37) |
 | `copilot_default_model` | `gpt-5-mini` | — | — | string | Default model for Copilot CLI |
 
 ### Agent Execution Timeouts

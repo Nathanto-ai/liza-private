@@ -84,9 +84,35 @@ func selectHighestPriorityTask(candidates []*models.Task) *models.Task {
 }
 
 // claimReviewerTask finds and claims a reviewable task.
-// Delegates to ops.ClaimReviewerTask for the actual state mutation.
+// First checks for own REVIEWING tasks (session ended without verdict) and
+// re-claims them. Otherwise delegates to ops.ClaimReviewerTask for new claims.
 func claimReviewerTask(projectRoot, agentID string, leaseDuration int, bb *db.Blackboard) (taskID, worktree, reviewCommit string, err error) {
 	logger := GetLogger()
+
+	// Fix 42: Check for tasks already REVIEWING and assigned to this reviewer.
+	// This handles re-invocation when the CLI session exited without submitting a verdict.
+	state, err := bb.Read()
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to read state: %w", err)
+	}
+	for i := range state.Tasks {
+		task := &state.Tasks[i]
+		if task.Status == models.TaskStatusReviewing &&
+			task.ReviewingBy != nil &&
+			*task.ReviewingBy == agentID {
+			wt := ""
+			if task.Worktree != nil {
+				wt = *task.Worktree
+			}
+			rc := ""
+			if task.ReviewCommit != nil {
+				rc = *task.ReviewCommit
+			}
+			logger.Info("Re-claiming own in-review task (session ended without verdict)",
+				"task_id", task.ID, "agent_id", agentID)
+			return task.ID, wt, rc, nil
+		}
+	}
 
 	result, err := ops.ClaimReviewerTask(ops.ClaimReviewerTaskInput{
 		ProjectRoot:   projectRoot,

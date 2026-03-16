@@ -2,6 +2,8 @@ package db
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -108,7 +110,28 @@ func (bb *Blackboard) Read() (*models.State, error) {
 	err := bb.fileLock.WithRetryBackoff("read", filelock.DefaultRetryAttempts, func() error {
 		data, err := os.ReadFile(bb.statePath)
 		if err != nil {
-			return err
+			// Fix 39: Auto-recover from backup if main file is missing/unreadable
+			backupPath := bb.statePath + ".bak"
+			backupData, backupErr := os.ReadFile(backupPath)
+			if backupErr != nil {
+				return err // original error — no backup available
+			}
+			log.Printf("WARNING: state.yaml unreadable (%v), recovering from backup %s", err, backupPath)
+			data = backupData
+			// Restore the main file from backup for future reads
+			_ = os.WriteFile(bb.statePath, data, 0644)
+		}
+
+		// Fix 39: Treat empty/corrupt files as missing, attempt backup recovery
+		if len(data) == 0 {
+			backupPath := bb.statePath + ".bak"
+			backupData, backupErr := os.ReadFile(backupPath)
+			if backupErr != nil || len(backupData) == 0 {
+				return fmt.Errorf("state.yaml is empty and no backup available")
+			}
+			log.Printf("WARNING: state.yaml is empty, recovering from backup %s", backupPath)
+			data = backupData
+			_ = os.WriteFile(bb.statePath, data, 0644)
 		}
 
 		if err := yaml.Unmarshal(data, &state); err != nil {
@@ -198,6 +221,15 @@ func (bb *Blackboard) InvalidateCache() {
 func (bb *Blackboard) writeStateData(data []byte) error {
 	dir := filepath.Dir(bb.statePath)
 	base := filepath.Base(bb.statePath)
+
+	// Fix 39: Create a backup of the current state before overwriting.
+	// Best-effort — errors are logged but do not block the write.
+	backupPath := bb.statePath + ".bak"
+	if _, statErr := os.Stat(bb.statePath); statErr == nil {
+		if cpErr := copyFile(bb.statePath, backupPath); cpErr != nil {
+			log.Printf("WARNING: failed to create state backup at %s: %v", backupPath, cpErr)
+		}
+	}
 
 	f, err := os.CreateTemp(dir, base+".tmp.*")
 	if err != nil {
@@ -342,4 +374,23 @@ func (bb *Blackboard) UpdateAgent(agentID string, fn func(*models.Agent) error) 
 // GetStatePath returns the path to the state file.
 func (bb *Blackboard) GetStatePath() string {
 	return bb.statePath
+}
+
+// copyFile copies src to dst by reading and writing file contents.
+// Used for best-effort state backup before writes.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
 }

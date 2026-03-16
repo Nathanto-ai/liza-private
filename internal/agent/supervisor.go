@@ -159,6 +159,44 @@ func (pt *progressTracker) reset() {
 	pt.noProgressCount = 0
 }
 
+// noSubmitTracker detects the "task_complete loop": the coder exits normally
+// (exit 0) but never transitions the task from IMPLEMENTING to REVIEWING.
+// After consecutiveNoSubmit reaches the limit the task is BLOCKED so it
+// stops being re-claimed infinitely. This addresses ISSUE-R7-07.
+type noSubmitTracker struct {
+	lastTaskID         string
+	consecutiveNoSubmit int
+	limit              int
+}
+
+// DefaultNoSubmitLimit is the number of consecutive coder exits without
+// submission before the supervisor blocks the task.
+const DefaultNoSubmitLimit = 3
+
+func newNoSubmitTracker(cfg models.Config) *noSubmitTracker {
+	limit := cfg.MaxNoSubmitIterations
+	if limit <= 0 {
+		limit = DefaultNoSubmitLimit
+	}
+	return &noSubmitTracker{limit: limit}
+}
+
+// record increments the counter for the given task. Returns true when the
+// threshold is reached and the task should be blocked.
+func (ns *noSubmitTracker) record(taskID string) bool {
+	if taskID != ns.lastTaskID {
+		ns.lastTaskID = taskID
+		ns.consecutiveNoSubmit = 0
+	}
+	ns.consecutiveNoSubmit++
+	return ns.consecutiveNoSubmit >= ns.limit
+}
+
+func (ns *noSubmitTracker) reset() {
+	ns.lastTaskID = ""
+	ns.consecutiveNoSubmit = 0
+}
+
 type exit42RestartState struct {
 	RestartCount int
 	Signature    string
@@ -684,6 +722,7 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 	exit42Tracker := newExit42RestartTracker()
 	crashTracker := newCrashRetryTracker(state.Config)
 	progTracker := newProgressTracker(state.Config)
+	noSubmitTracker := newNoSubmitTracker(state.Config)
 	consecutiveIdleCount := 0
 
 	// Wire budget tracker for runaway prevention
@@ -814,7 +853,13 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		if config.Role == roles.RuntimeCoder {
 			taskID, _, err = claimCoderTask(config.ProjectRoot, config.AgentID, bb)
 			if err != nil {
-				// Error already logged in claimCoderTask
+				// Fix 41: Stale claim detector — if claim fails but READY tasks exist,
+				// force-release any stale assignments for this agent and retry immediately.
+				if detectAndFixStaleClaim(bb, config.AgentID) {
+					GetLogger().Warn("Stale claim detected and cleared, retrying claim",
+						"agent_id", config.AgentID)
+					continue
+				}
 				time.Sleep(5 * time.Second)
 				continue
 			}
@@ -915,6 +960,36 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 			if config.Role == roles.RuntimeCoder && claimedTaskID != "" {
 				if err := logTaskSubmissionIfCompleted(bb, claimedTaskID, config.AgentID); err != nil {
 					GetLogger().Warn("Failed to log task submission", "error", err, "task_id", claimedTaskID)
+				}
+
+				// Fix 37: Detect coder exiting without submission (task_complete loop).
+				// After logTaskSubmissionIfCompleted, if the task reverted to READY it
+				// means the coder exited without calling liza_submit_for_review.
+				// Track consecutive occurrences and block after threshold.
+				postCheck, postErr := bb.Read()
+				if postErr == nil {
+					postTask := postCheck.FindTask(claimedTaskID)
+					if postTask != nil && postTask.Status == models.TaskStatusReady {
+						// Task was released back to READY — coder did not submit.
+						if noSubmitTracker.record(claimedTaskID) {
+							GetLogger().Warn("Task blocked: coder exited without submission too many times (possible task_complete loop)",
+								"task_id", claimedTaskID,
+								"consecutive_no_submit", noSubmitTracker.consecutiveNoSubmit,
+								"limit", noSubmitTracker.limit,
+								"agent_id", config.AgentID)
+							blockTaskOnNoSubmit(bb, claimedTaskID, config.AgentID, noSubmitTracker.consecutiveNoSubmit, noSubmitTracker.limit)
+							noSubmitTracker.reset()
+						} else {
+							GetLogger().Warn("Coder exited without submission, tracking",
+								"task_id", claimedTaskID,
+								"consecutive_no_submit", noSubmitTracker.consecutiveNoSubmit,
+								"limit", noSubmitTracker.limit,
+								"agent_id", config.AgentID)
+						}
+					} else {
+						// Task was submitted or changed status — reset tracker
+						noSubmitTracker.reset()
+					}
 				}
 
 				// Run deterministic verification on submitted tasks
@@ -1124,6 +1199,66 @@ func blockTaskOnNoProgress(bb *db.Blackboard, taskID, agentID string, count, lim
 	}
 }
 
+// blockTaskOnNoSubmit transitions a task to BLOCKED after the coder repeatedly
+// exits without submitting for review (the "task_complete loop" from ISSUE-R7-07).
+// The task may be in READY state (logTaskSubmissionIfCompleted already released it)
+// so we transition READY → IMPLEMENTING → BLOCKED.
+func blockTaskOnNoSubmit(bb *db.Blackboard, taskID, agentID string, count, limit int) {
+	if taskID == "" {
+		return
+	}
+	err := bb.Modify(func(s *models.State) error {
+		task := s.FindTask(taskID)
+		if task == nil {
+			return nil
+		}
+
+		// The task was released to READY by logTaskSubmissionIfCompleted.
+		// Re-claim it so we can block it.
+		if task.Status == models.TaskStatusReady {
+			if err := task.Transition(models.TaskStatusImplementing); err != nil {
+				return err
+			}
+			task.AssignedTo = &agentID
+		}
+
+		if task.Status != models.TaskStatusImplementing {
+			return nil
+		}
+
+		reason := fmt.Sprintf(
+			"task_complete loop detected: coder exited %d consecutive times without calling "+
+				"liza_submit_for_review (threshold=%d). The model is likely calling the copilot-native "+
+				"task_complete tool instead of the MCP submit tool.",
+			count, limit,
+		)
+		questions := []string{
+			"Is the model reliably using MCP tools or preferring copilot-native tools?",
+			"Should this task be manually implemented or the approach changed?",
+		}
+
+		if err := task.Transition(models.TaskStatusBlocked); err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		task.BlockedReason = &reason
+		task.BlockedQuestions = questions
+		task.AssignedTo = nil
+		task.LeaseExpires = nil
+		task.History = append(task.History, models.TaskHistoryEntry{
+			Time:   now,
+			Event:  "blocked",
+			Agent:  &agentID,
+			Reason: &reason,
+		})
+		return nil
+	})
+	if err != nil {
+		GetLogger().Error("Failed to block task on no-submit loop", "error", err, "task_id", taskID)
+	}
+}
+
 // computeIdleBackoff returns an exponential backoff duration for idle agents.
 func computeIdleBackoff(consecutiveIdleCount int, cfg models.Config) time.Duration {
 	baseSec := cfg.IdleBackoffBaseSec
@@ -1193,4 +1328,78 @@ func monitorMCPActivity(ctx context.Context, cancel context.CancelFunc, activity
 			}
 		}
 	}
+}
+
+// detectAndFixStaleClaim checks for IMPLEMENTING tasks assigned to agents with
+// stale heartbeats and releases those claims so other coders can pick them up.
+// Returns true if at least one stale claim was released (caller should retry).
+func detectAndFixStaleClaim(bb *db.Blackboard, callerAgentID string) bool {
+	logger := GetLogger()
+
+	state, err := bb.Read()
+	if err != nil {
+		logger.Warn("detectAndFixStaleClaim: failed to read state", "error", err)
+		return false
+	}
+
+	// Determine heartbeat stale threshold: 3× the configured interval.
+	heartbeatInterval := models.NormalizeHeartbeatInterval(state.Config.HeartbeatInterval)
+	staleThreshold := 3 * heartbeatInterval
+
+	var staleTaskIDs []string
+	for _, task := range state.Tasks {
+		if task.Status != models.TaskStatusImplementing {
+			continue
+		}
+		if task.AssignedTo == nil {
+			continue
+		}
+		assignee := *task.AssignedTo
+		if assignee == callerAgentID {
+			// Own task — not stale, handled by normal re-claim path.
+			continue
+		}
+
+		agent, exists := state.Agents[assignee]
+		if !exists {
+			// Assigned to unknown agent — treat as stale.
+			staleTaskIDs = append(staleTaskIDs, task.ID)
+			continue
+		}
+		if time.Since(agent.Heartbeat) > staleThreshold {
+			staleTaskIDs = append(staleTaskIDs, task.ID)
+		}
+	}
+
+	if len(staleTaskIDs) == 0 {
+		return false
+	}
+
+	// Release stale claims.
+	err = bb.Modify(func(s *models.State) error {
+		for _, taskID := range staleTaskIDs {
+			t := s.FindTask(taskID)
+			if t == nil || t.Status != models.TaskStatusImplementing {
+				continue
+			}
+			logger.Warn("Releasing stale claim on task",
+				"task_id", taskID,
+				"assigned_to", t.AssignedTo,
+				"caller", callerAgentID)
+			if err := t.Transition(models.TaskStatusReady); err != nil {
+				logger.Warn("Failed to transition stale task to READY",
+					"task_id", taskID, "error", err)
+				continue
+			}
+			t.AssignedTo = nil
+			t.LeaseExpires = nil
+		}
+		return nil
+	})
+	if err != nil {
+		logger.Warn("detectAndFixStaleClaim: modify failed", "error", err)
+		return false
+	}
+
+	return true
 }
