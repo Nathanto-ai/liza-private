@@ -37,6 +37,9 @@ const (
 	SkillsDirName       = "skills"        // Directory for skill files
 	SpecsDirName        = "specs"         // Directory for specification files
 
+	// MCP activity tracking
+	MCPActivityFileName = "mcp-activity" // Timestamp file updated on each MCP tool call
+
 	// Claude-specific
 	ClaudeDirName      = ".claude"       // Claude directory name (in project root)
 	ClaudeSettingsFile = "settings.json" // Claude settings file name
@@ -134,6 +137,11 @@ func (p LizaPaths) AgentOutputsDir() string {
 // ContractsDir returns the path to the contracts directory.
 func (p LizaPaths) ContractsDir() string {
 	return p.get(ContractsDirName)
+}
+
+// MCPActivityPath returns the path to the MCP activity timestamp file.
+func (p LizaPaths) MCPActivityPath() string {
+	return p.get(MCPActivityFileName)
 }
 
 // SkillsDir returns the path to the skills directory.

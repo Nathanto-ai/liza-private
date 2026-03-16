@@ -753,6 +753,7 @@ const (
 	DefaultMaxIterationsWithoutProgress = 5
 	DefaultIdleBackoffBaseSec           = 30
 	DefaultIdleBackoffMaxSec            = 600 // 10 minutes
+	DefaultMCPInactivityTimeoutSec      = 600 // 10 minutes
 
 	// DefaultCopilotModel is the default model for the Copilot CLI backend.
 	// gpt-5-mini is the GPT-5 family mini model available in Copilot CLI.
@@ -820,6 +821,10 @@ type Config struct {
 	IdleBackoffMaxSec  int `yaml:"idle_backoff_max_seconds,omitempty"`
 	// Copilot CLI backend configuration
 	CopilotDefaultModel string `yaml:"copilot_default_model,omitempty"`
+	// MCPInactivityTimeoutSec is the maximum time (in seconds) an agent can run
+	// without any MCP tool calls before the supervisor kills and restarts it.
+	// 0 = disabled. Default: 600 (10 minutes).
+	MCPInactivityTimeoutSec int `yaml:"mcp_inactivity_timeout,omitempty"`
 	// RaceDetector controls whether tests run with -race flag.
 	// nil = auto (use -race if CGO is available), false = skip -race, true = require -race.
 	RaceDetector *bool `yaml:"race_detector,omitempty"`

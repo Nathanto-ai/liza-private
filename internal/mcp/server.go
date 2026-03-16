@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/liza-mas/liza/internal/db"
 	lizaerrors "github.com/liza-mas/liza/internal/errors"
@@ -162,6 +164,9 @@ func (s *Server) handleToolsList(req *protocol.JSONRPCRequest) *protocol.JSONRPC
 
 // handleToolCall handles the tools/call request
 func (s *Server) handleToolCall(req *protocol.JSONRPCRequest) *protocol.JSONRPCResponse {
+	// Record MCP activity timestamp for inactivity detection by supervisor
+	s.recordMCPActivity()
+
 	params, ok := req.Params.(map[string]any)
 	if !ok {
 		return rpcError(req, protocol.NewInvalidParamsError("params must be an object"))
@@ -276,6 +281,16 @@ func (s *Server) handleNotification(req *protocol.JSONRPCRequest) {
 		// Unknown notification — log but don't error
 		fmt.Fprintf(io.Discard, "unknown notification: %s\n", req.Method)
 	}
+}
+
+// recordMCPActivity writes the current timestamp to the MCP activity file.
+// This allows the supervisor to detect MCP inactivity (agent running but not
+// calling any liza MCP tools). Errors are silently ignored — activity tracking
+// is best-effort and must not break tool execution.
+func (s *Server) recordMCPActivity() {
+	activityPath := paths.New(s.projectRoot).MCPActivityPath()
+	// Write RFC3339 timestamp — small atomic write, no locking needed
+	_ = os.WriteFile(activityPath, []byte(time.Now().UTC().Format(time.RFC3339)), 0644)
 }
 
 // registerTool registers a tool with its handler

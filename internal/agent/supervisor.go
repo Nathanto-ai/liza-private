@@ -860,11 +860,34 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		}
 		GetLogger().Info("Prompt saved", "file", promptFile)
 
+		// Initialize MCP activity file before execution so the inactivity
+		// monitor has a baseline timestamp.
+		mcpActivityPath := lizaPaths.MCPActivityPath()
+		os.WriteFile(mcpActivityPath, []byte(time.Now().UTC().Format(time.RFC3339)), 0644)
+
+		// Start MCP inactivity monitor if configured.
+		// If the agent runs for mcpInactivityTimeout without any MCP tool calls,
+		// cancel the execution context to kill and restart the session.
+		mcpTimeout := effectiveMCPInactivityTimeout(state.Config)
+		var mcpCtx context.Context
+		var mcpCancel context.CancelFunc
+		if mcpTimeout > 0 {
+			mcpCtx, mcpCancel = context.WithCancel(ctx)
+			go monitorMCPActivity(mcpCtx, mcpCancel, mcpActivityPath, mcpTimeout, config.AgentID)
+		} else {
+			mcpCtx = ctx
+			mcpCancel = func() {} // no-op
+		}
+
 		// Execute agent
-		exitCode, err := executeAgent(ctx, config, prompt)
+		exitCode, err := executeAgent(mcpCtx, config, prompt)
+		mcpCancel() // Stop MCP monitor goroutine
 		if err != nil {
 			return fmt.Errorf("agent execution error: %w", err)
 		}
+
+		// Clean up MCP activity file after execution
+		os.Remove(mcpActivityPath)
 
 		// Reset runtime status after CLI exits, but preserve explicit command-driven
 		// states such as WAITING and HANDOFF.
@@ -1120,4 +1143,54 @@ func computeIdleBackoff(consecutiveIdleCount int, cfg models.Config) time.Durati
 		}
 	}
 	return delay
+}
+
+// effectiveMCPInactivityTimeout returns the MCP inactivity timeout from config,
+// falling back to the default. Returns 0 if disabled.
+func effectiveMCPInactivityTimeout(cfg models.Config) time.Duration {
+	sec := cfg.MCPInactivityTimeoutSec
+	if sec < 0 {
+		return 0 // explicitly disabled
+	}
+	if sec == 0 {
+		sec = models.DefaultMCPInactivityTimeoutSec
+	}
+	return time.Duration(sec) * time.Second
+}
+
+// monitorMCPActivity periodically checks the MCP activity file and cancels the
+// execution context if no MCP tool calls have been made within the timeout.
+// This detects agents stuck in built-in tool loops (e.g., copilot's native file
+// read/write) without calling any liza MCP tools.
+func monitorMCPActivity(ctx context.Context, cancel context.CancelFunc, activityPath string, timeout time.Duration, agentID string) {
+	logger := GetLogger()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			data, err := os.ReadFile(activityPath)
+			if err != nil {
+				// File missing — MCP server may not have started yet, skip check
+				continue
+			}
+			lastActivity, err := time.Parse(time.RFC3339, string(data))
+			if err != nil {
+				continue
+			}
+			elapsed := time.Since(lastActivity)
+			if elapsed > timeout {
+				logger.Warn("MCP inactivity timeout — killing agent session",
+					"agent_id", agentID,
+					"last_mcp_call", lastActivity.Format(time.RFC3339),
+					"elapsed", elapsed.Round(time.Second),
+					"timeout", timeout)
+				cancel()
+				return
+			}
+		}
+	}
 }

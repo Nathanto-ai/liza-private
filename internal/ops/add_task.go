@@ -3,6 +3,8 @@ package ops
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -167,6 +169,22 @@ func AddTask(statePath, logPath string, input *AddTaskInput, plannerID string) (
 				)
 			}
 		}
+	}
+
+	// Pre-write spec_ref file existence check (Fix 32: atomic validation).
+	// Validate that the referenced spec file exists BEFORE writing to state,
+	// so a bad spec_ref never creates a partial/invalid task.
+	projectRoot := filepath.Dir(filepath.Dir(statePath)) // statePath = .liza/state.yaml
+	specFile := input.SpecRef
+	if idx := strings.Index(specFile, "#"); idx != -1 {
+		specFile = specFile[:idx]
+	}
+	specPath := specFile
+	if !filepath.IsAbs(specPath) {
+		specPath = filepath.Join(projectRoot, specFile)
+	}
+	if _, err := os.Stat(specPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("task %s: spec_ref file not found: %s", input.ID, specFile)
 	}
 
 	newTask := models.Task{

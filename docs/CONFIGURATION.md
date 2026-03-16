@@ -101,6 +101,7 @@ All configuration lives in `.liza/state.yaml` under the `config` section.
 | `enforce_deduplication` | false | — | — | bool | Reject duplicate task descriptions |
 | `require_audit_for_sprint_close` | false | — | — | bool | Require audit pass before closing sprint |
 | `diagnostic_logging` | false | — | — | bool | Enable verbose diagnostic log output |
+| `mcp_inactivity_timeout` | 600 | -1 | 7200 | seconds | Max seconds with no MCP tool calls before supervisor kills agent (-1 disables) |
 | `copilot_default_model` | `gpt-5-mini` | — | — | string | Default model for Copilot CLI |
 
 ### Agent Execution Timeouts

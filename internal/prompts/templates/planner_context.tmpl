@@ -80,6 +80,7 @@ SELF-VALIDATION GATES (verify before adding each task):
 | No duplicates | Do NOT add tasks with same description + scope as existing non-terminal tasks |
 | Error behavior | Define expected error handling (typed errors, no panics) |
 | Data provenance | Never invent data — all outputs must trace to real inputs. No hallucinated URLs, schemas, or test data. |
+| Build hygiene | The first task MUST include creating a .gitignore appropriate for the project's language/framework. This prevents build artifacts, coverage files, and editor backups from being committed. |
 
 SPEC GATE — OPEN QUESTIONS:
 If the spec file referenced by a task contains unresolved questions (e.g. "TBD", "OPEN QUESTION", "TODO: decide"),

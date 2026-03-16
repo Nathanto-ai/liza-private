@@ -123,15 +123,22 @@ If a required tool or dependency is missing (e.g., pip, npm, cargo):
 4. Tests are MANDATORY for code tasks — Code Reviewer will reject code without tests. Use the testing skill.
 5. Exempt: doc-only, config-only, or spec-only tasks (no code = no tests required)
 6. TDD waiver: For cosmetic-only changes (comment fixes, formatting), set tdd_not_required in checkpoint with justification
-7. Use the clean-code skill at the end of the implementation
-8. Validate ALL done_when criteria are met
-9. If context exhaustion is near (~90%): run liza_handoff with summary + next_action, then exit with code 42
+7. Commit incrementally: after each logical unit of work (e.g., tests written, feature implemented,
+   bug fixed), commit with a descriptive message. Do NOT batch all changes into one commit at the end.
+   Small, focused commits are easier to review and less likely to be lost.
+8. Use the clean-code skill at the end of the implementation
+9. Validate ALL done_when criteria are met
+10. If context exhaustion is near (~90%): run liza_handoff with summary + next_action, then exit with code 42
 
 --- SUBMISSION (MANDATORY - DO NOT SKIP) ---
 After implementation and tests pass, you MUST submit for review:
 1. Get commit SHA via liza_exec: {"command": "git rev-parse HEAD", "cwd": "{{.WorktreePath}}"}
 2. Execute liza_submit_for_review: {"task_id": "{{.Task.ID}}", "commit_sha": "<SHA from step 1>", "agent_id": "{{.Config.AgentID}}"}
 3. Verify confirmation: status changed to READY_FOR_REVIEW
+
+⚠️  CRITICAL: Do NOT call "task_complete" or any other completion tool.
+"task_complete" is a DIFFERENT tool that will LOSE your work.
+The ONLY correct completion tool is liza_submit_for_review.
 
 ❌ FAILURE MODE: Completing work, saying "ready for review", then exiting WITHOUT calling the tool.
 The tool call IS the deliverable. Work without tool execution = nothing happened.
