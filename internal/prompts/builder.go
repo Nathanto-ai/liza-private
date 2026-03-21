@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/liza-mas/liza/internal/models"
+	"github.com/liza-mas/liza/internal/verify"
 )
 
 // BasePromptConfig contains configuration for building the base prompt
@@ -154,6 +155,7 @@ type coderContextData struct {
 
 // BuildCoderContext creates coder-specific context with task details
 func BuildCoderContext(task *models.Task, config CoderContextConfig) (string, error) {
+	task = sanitizeTaskForPrompt(task)
 	worktreePath := ""
 	if task.Worktree != nil {
 		worktreePath = fmt.Sprintf("%s/%s", config.ProjectRoot, *task.Worktree)
@@ -181,6 +183,7 @@ type reviewerContextData struct {
 
 // BuildReviewerContext creates reviewer-specific context with review details
 func BuildReviewerContext(task *models.Task, config ReviewerContextConfig) (string, error) {
+	task = sanitizeTaskForPrompt(task)
 	worktreePath := ""
 	if task.Worktree != nil {
 		worktreePath = fmt.Sprintf("%s/%s", config.ProjectRoot, *task.Worktree)
@@ -242,6 +245,23 @@ func derefString(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// sanitizeTaskForPrompt returns a shallow copy of the task with verify_commands
+// and done_when sanitized for the current environment (e.g., -race stripped on
+// Windows when CGO is unavailable). This ensures agents see the commands that
+// will actually be executed, preventing false rejections.
+func sanitizeTaskForPrompt(task *models.Task) *models.Task {
+	copy := *task
+	if len(copy.VerifyCommands) > 0 {
+		sanitized := make([]string, len(copy.VerifyCommands))
+		for i, cmd := range copy.VerifyCommands {
+			sanitized[i] = verify.StripRaceFlagIfNeeded(cmd)
+		}
+		copy.VerifyCommands = sanitized
+	}
+	copy.DoneWhen = verify.StripRaceFlagIfNeeded(copy.DoneWhen)
+	return &copy
 }
 
 // hasPriorRejection reports whether the task has actionable rejection feedback from a prior iteration

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"syscall"
 )
 
@@ -21,6 +22,8 @@ const (
 	LockErrorFilesystem
 	// LockErrorStale indicates the lock is held by a dead process.
 	LockErrorStale
+	// LockErrorSharingViolation indicates a Windows file sharing violation (transient, retryable).
+	LockErrorSharingViolation
 )
 
 // String returns a string representation of the error type.
@@ -36,6 +39,8 @@ func (t LockErrorType) String() string {
 		return "filesystem"
 	case LockErrorStale:
 		return "stale"
+	case LockErrorSharingViolation:
+		return "sharing_violation"
 	default:
 		return "unknown"
 	}
@@ -95,6 +100,16 @@ func ClassifyLockError(err error) *LockError {
 		}
 	} else if e, ok := err.(syscall.Errno); ok {
 		errno = e
+	}
+
+	// Windows ERROR_SHARING_VIOLATION (errno 32) is transient and retryable.
+	// On Unix errno 32 is EPIPE (unrelated), so we gate on GOOS.
+	if runtime.GOOS == "windows" && errno == 32 {
+		return &LockError{
+			Type:    LockErrorSharingViolation,
+			Message: "file sharing violation (transient)",
+			Err:     err,
+		}
 	}
 
 	// Classify based on errno

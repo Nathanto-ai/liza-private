@@ -120,7 +120,7 @@ Do NOT wait for permission. Do NOT rationalize waiting.
 You MUST execute liza_submit_verdict IN THIS SAME SESSION:
   APPROVED: {"task_id": "{{.Task.ID}}", "verdict": "APPROVED", "agent_id": "{{.Config.AgentID}}"}
   REJECTED: {"task_id": "{{.Task.ID}}", "verdict": "REJECTED", "agent_id": "{{.Config.AgentID}}", "reason": "<detailed rejection>"}
-After submitting verdict, EXIT immediately. Your work is complete.
+After submitting verdict, call task_complete to end the session. Do NOT loop or continue working.
 
 ❌ FAILURE MODE: Completing review, saying "I recommend APPROVED", then exiting WITHOUT calling the tool.
 The tool call IS the deliverable. Analysis without tool execution = nothing happened.

@@ -90,10 +90,13 @@ func TestFix33_ReviewerPromptBuildArtifactChecklist(t *testing.T) {
 }
 
 // TestFix34_CoderPromptTaskCompleteWarning verifies the coder prompt
-// warns against calling task_complete instead of liza_submit_for_review.
+// warns against calling task_complete instead of liza_submit_for_review,
+// AND instructs to use task_complete AFTER submission to exit cleanly.
 // Bug: Coder called task_complete (copilot built-in) instead of liza_submit_for_review,
 // losing 5 commits of work (ISSUE-R6-05).
-// Fix: Added explicit "Do NOT call task_complete" warning.
+// Fix 34: Added explicit task_complete warning.
+// Fix 46: Changed from "Do NOT call task_complete" to allow task_complete AFTER submission,
+// preventing infinite task_complete loop in copilot autopilot mode.
 func TestFix34_CoderPromptTaskCompleteWarning(t *testing.T) {
 	t.Parallel()
 
@@ -113,15 +116,20 @@ func TestFix34_CoderPromptTaskCompleteWarning(t *testing.T) {
 	}
 
 	requiredPhrases := []string{
-		"Do NOT call \"task_complete\"",
 		"task_complete",
 		"LOSE your work",
 		"liza_submit_for_review",
+		"call task_complete to end the session",
 	}
 	for _, phrase := range requiredPhrases {
 		if !strings.Contains(prompt, phrase) {
 			t.Errorf("Coder prompt missing task_complete warning phrase: %q", phrase)
 		}
+	}
+
+	// Verify prompt does NOT say "Do NOT call task_complete" (Fix 46 removed this)
+	if strings.Contains(prompt, "Do NOT call \"task_complete\"") {
+		t.Error("Coder prompt should NOT contain 'Do NOT call task_complete' (Fix 46: allow task_complete after submission)")
 	}
 }
 

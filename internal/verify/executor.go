@@ -85,10 +85,11 @@ func SanitizeCommand(cmdStr string) string {
 // racePattern matches the -race flag in go test commands (standalone flag, not part of another word).
 var racePattern = regexp.MustCompile(`(^|\s)-race(\s|$)`)
 
-// stripRaceFlagIfNeeded removes -race from go test commands on Windows when
+// StripRaceFlagIfNeeded removes -race from go test commands on Windows when
 // cgo is not available. The -race detector requires cgo, which is not present
 // in standard Windows Go installations without a C compiler.
-func stripRaceFlagIfNeeded(cmdStr string) string {
+// Exported so prompt builders can sanitize verify_commands before display.
+func StripRaceFlagIfNeeded(cmdStr string) string {
 	if runtime.GOOS != "windows" {
 		return cmdStr
 	}
@@ -149,7 +150,7 @@ func runCommand(ctx context.Context, cmdStr, workdir string, cfg Config) Command
 	cmdStr = SanitizeCommand(cmdStr)
 
 	// Strip -race flag on Windows when cgo is not available
-	cmdStr = stripRaceFlagIfNeeded(cmdStr)
+	cmdStr = StripRaceFlagIfNeeded(cmdStr)
 
 	var cmdCtx context.Context
 	var cancel context.CancelFunc

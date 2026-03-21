@@ -83,7 +83,7 @@ func TestFix37_NoSubmitTrackerDefaultLimit(t *testing.T) {
 }
 
 // TestFix37_BlockTaskOnNoSubmit verifies that blockTaskOnNoSubmit transitions
-// a READY task to BLOCKED with the correct reason.
+// a READY task to NEEDS_HUMAN_DECISION (Fix 43 changed from BLOCKED) with the correct reason.
 func TestFix37_BlockTaskOnNoSubmit(t *testing.T) {
 	t.Parallel()
 
@@ -131,14 +131,15 @@ func TestFix37_BlockTaskOnNoSubmit(t *testing.T) {
 	if task == nil {
 		t.Fatal("task-loop not found in state")
 	}
-	if task.Status != models.TaskStatusBlocked {
-		t.Errorf("expected task status BLOCKED, got %s", task.Status)
+	// Fix 43: now NEEDS_HUMAN_DECISION instead of BLOCKED
+	if task.Status != models.TaskStatusNeedsHumanDecision {
+		t.Errorf("expected task status NEEDS_HUMAN_DECISION, got %s", task.Status)
 	}
 	if task.BlockedReason == nil {
 		t.Fatal("expected BlockedReason to be set")
 	}
 	if task.AssignedTo != nil {
-		t.Errorf("expected AssignedTo to be nil after blocking, got %v", *task.AssignedTo)
+		t.Errorf("expected AssignedTo to be nil after escalation, got %v", *task.AssignedTo)
 	}
 }
 

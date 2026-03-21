@@ -361,16 +361,16 @@ func TestStripRaceFlagIfNeeded(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := stripRaceFlagIfNeeded(tt.input)
+			got := StripRaceFlagIfNeeded(tt.input)
 
 			if runtime.GOOS == "windows" {
 				if got != tt.want {
-					t.Errorf("stripRaceFlagIfNeeded(%q) = %q, want %q", tt.input, got, tt.want)
+					t.Errorf("StripRaceFlagIfNeeded(%q) = %q, want %q", tt.input, got, tt.want)
 				}
 			} else {
 				// On non-Windows, the function should be a no-op
 				if got != tt.input {
-					t.Errorf("stripRaceFlagIfNeeded(%q) = %q, want %q (no-op on non-Windows)", tt.input, got, tt.input)
+					t.Errorf("StripRaceFlagIfNeeded(%q) = %q, want %q (no-op on non-Windows)", tt.input, got, tt.input)
 				}
 			}
 		})

@@ -402,7 +402,7 @@ func TestClaimReviewerTask_TieBreakingByCreationTime(t *testing.T) {
 }
 
 // TestClaimReviewerTask_SkipsClaimedReviewTasks verifies that tasks already being reviewed
-// are skipped, and the next highest-priority available task is selected.
+// by another reviewer are skipped, and the next highest-priority available task is selected.
 func TestClaimReviewerTask_SkipsClaimedReviewTasks(t *testing.T) {
 	tmpDir := t.TempDir()
 	testhelpers.SetupTestGitRepo(t, tmpDir)
@@ -411,10 +411,13 @@ func TestClaimReviewerTask_SkipsClaimedReviewTasks(t *testing.T) {
 	now := time.Now().UTC()
 	state := testhelpers.CreateValidState()
 
-	// High-priority task already being reviewed (REVIEWING state — not a candidate for claimReviewerTask)
+	// High-priority task already being reviewed by a DIFFERENT reviewer
+	// (REVIEWING state with ReviewingBy set to another agent — not a candidate)
 	taskHighClaimed := testhelpers.BuildTaskByStatus("task-high-claimed", models.TaskStatusReviewing, now)
 	taskHighClaimed.Priority = 1
 	taskHighClaimed.Created = now.Add(-3 * time.Minute)
+	otherReviewer := "code-reviewer-2"
+	taskHighClaimed.ReviewingBy = &otherReviewer
 
 	// Lower-priority task available for review
 	taskLowAvailable := testhelpers.BuildTaskByStatus("task-low-available", models.TaskStatusReadyForReview, now)

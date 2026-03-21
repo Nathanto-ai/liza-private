@@ -918,7 +918,7 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		var mcpCancel context.CancelFunc
 		if mcpTimeout > 0 {
 			mcpCtx, mcpCancel = context.WithCancel(ctx)
-			go monitorMCPActivity(mcpCtx, mcpCancel, mcpActivityPath, mcpTimeout, config.AgentID)
+			go monitorMCPActivity(mcpCtx, mcpCancel, mcpActivityPath, mcpTimeout, 30*time.Second, config.AgentID)
 		} else {
 			mcpCtx = ctx
 			mcpCancel = func() {} // no-op
@@ -1199,10 +1199,12 @@ func blockTaskOnNoProgress(bb *db.Blackboard, taskID, agentID string, count, lim
 	}
 }
 
-// blockTaskOnNoSubmit transitions a task to BLOCKED after the coder repeatedly
-// exits without submitting for review (the "task_complete loop" from ISSUE-R7-07).
+// blockTaskOnNoSubmit escalates a task after the coder repeatedly exits without
+// submitting for review (the "task_complete loop" from ISSUE-R7-07).
+// Fix 43: Use NEEDS_HUMAN_DECISION instead of BLOCKED so the planner does NOT
+// wake and create useless meta-tasks (repair/investigate/test/fix cascades).
 // The task may be in READY state (logTaskSubmissionIfCompleted already released it)
-// so we transition READY → IMPLEMENTING → BLOCKED.
+// so we transition READY → IMPLEMENTING → NEEDS_HUMAN_DECISION.
 func blockTaskOnNoSubmit(bb *db.Blackboard, taskID, agentID string, count, limit int) {
 	if taskID == "" {
 		return
@@ -1214,7 +1216,7 @@ func blockTaskOnNoSubmit(bb *db.Blackboard, taskID, agentID string, count, limit
 		}
 
 		// The task was released to READY by logTaskSubmissionIfCompleted.
-		// Re-claim it so we can block it.
+		// Re-claim it so we can escalate it.
 		if task.Status == models.TaskStatusReady {
 			if err := task.Transition(models.TaskStatusImplementing); err != nil {
 				return err
@@ -1232,30 +1234,27 @@ func blockTaskOnNoSubmit(bb *db.Blackboard, taskID, agentID string, count, limit
 				"task_complete tool instead of the MCP submit tool.",
 			count, limit,
 		)
-		questions := []string{
-			"Is the model reliably using MCP tools or preferring copilot-native tools?",
-			"Should this task be manually implemented or the approach changed?",
-		}
 
-		if err := task.Transition(models.TaskStatusBlocked); err != nil {
+		// Fix 43: NEEDS_HUMAN_DECISION instead of BLOCKED to avoid planner
+		// wake cascade (BLOCKED_TASKS trigger creates repair/investigate tasks).
+		if err := task.Transition(models.TaskStatusNeedsHumanDecision); err != nil {
 			return err
 		}
 
 		now := time.Now().UTC()
 		task.BlockedReason = &reason
-		task.BlockedQuestions = questions
 		task.AssignedTo = nil
 		task.LeaseExpires = nil
 		task.History = append(task.History, models.TaskHistoryEntry{
 			Time:   now,
-			Event:  "blocked",
+			Event:  "needs_human_decision",
 			Agent:  &agentID,
 			Reason: &reason,
 		})
 		return nil
 	})
 	if err != nil {
-		GetLogger().Error("Failed to block task on no-submit loop", "error", err, "task_id", taskID)
+		GetLogger().Error("Failed to escalate task on no-submit loop", "error", err, "task_id", taskID)
 	}
 }
 
@@ -1297,10 +1296,16 @@ func effectiveMCPInactivityTimeout(cfg models.Config) time.Duration {
 // execution context if no MCP tool calls have been made within the timeout.
 // This detects agents stuck in built-in tool loops (e.g., copilot's native file
 // read/write) without calling any liza MCP tools.
-func monitorMCPActivity(ctx context.Context, cancel context.CancelFunc, activityPath string, timeout time.Duration, agentID string) {
+func monitorMCPActivity(ctx context.Context, cancel context.CancelFunc, activityPath string, timeout time.Duration, checkInterval time.Duration, agentID string) {
 	logger := GetLogger()
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
+
+	// Track when the monitor started as a fallback: if the activity file
+	// never appears (e.g. MCP server failed to start, file write failed),
+	// we still enforce a deadline of 2× the timeout.
+	monitorStart := time.Now()
+	fallbackDeadline := 2 * timeout
 
 	for {
 		select {
@@ -1309,7 +1314,16 @@ func monitorMCPActivity(ctx context.Context, cancel context.CancelFunc, activity
 		case <-ticker.C:
 			data, err := os.ReadFile(activityPath)
 			if err != nil {
-				// File missing — MCP server may not have started yet, skip check
+				// File missing — MCP server may not have started yet.
+				// But enforce fallback deadline to prevent infinite waiting.
+				if time.Since(monitorStart) > fallbackDeadline {
+					logger.Warn("MCP activity file never appeared — killing agent session",
+						"agent_id", agentID,
+						"waited", time.Since(monitorStart).Round(time.Second),
+						"fallback_deadline", fallbackDeadline)
+					cancel()
+					return
+				}
 				continue
 			}
 			lastActivity, err := time.Parse(time.RFC3339, string(data))

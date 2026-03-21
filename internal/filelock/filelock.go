@@ -233,10 +233,17 @@ func (fl *FileLock) WithRetryBackoff(operation string, maxRetries int, fn func()
 		}
 
 		// Only retry classified lock errors that are transient.
-		// Errors from fn() (non-LockError) are returned immediately.
+		// Errors from fn() (non-LockError) are returned immediately,
+		// UNLESS they are Windows sharing violations (transient file access conflicts).
 		var lockErr *LockError
 		if !errors.As(lastErr, &lockErr) {
-			return lastErr
+			// Check if this is a sharing violation from fn() (e.g. os.ReadFile)
+			classified := ClassifyLockError(lastErr)
+			if classified.Type == LockErrorSharingViolation {
+				lockErr = classified // treat as retryable
+			} else {
+				return lastErr
+			}
 		}
 
 		// Timeout and permanent lock errors are not retryable.
@@ -248,6 +255,7 @@ func (fl *FileLock) WithRetryBackoff(operation string, maxRetries int, fn func()
 		}
 
 		// Retryable: LockErrorStale (cleanup may succeed on next attempt)
+		// Retryable: LockErrorSharingViolation (transient Windows file access conflict)
 
 		// Last attempt — don't sleep
 		if attempt == maxRetries {

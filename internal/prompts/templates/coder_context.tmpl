@@ -136,9 +136,12 @@ After implementation and tests pass, you MUST submit for review:
 2. Execute liza_submit_for_review: {"task_id": "{{.Task.ID}}", "commit_sha": "<SHA from step 1>", "agent_id": "{{.Config.AgentID}}"}
 3. Verify confirmation: status changed to READY_FOR_REVIEW
 
-⚠️  CRITICAL: Do NOT call "task_complete" or any other completion tool.
-"task_complete" is a DIFFERENT tool that will LOSE your work.
-The ONLY correct completion tool is liza_submit_for_review.
+⚠️  CRITICAL: You MUST call liza_submit_for_review BEFORE ending the session.
+"task_complete" alone will LOSE your work — it does NOT submit anything.
+The ONLY correct submission tool is liza_submit_for_review.
+
+After liza_submit_for_review succeeds (status changed to READY_FOR_REVIEW),
+call task_complete to end the session. Do NOT loop or continue working.
 
 ❌ FAILURE MODE: Completing work, saying "ready for review", then exiting WITHOUT calling the tool.
 The tool call IS the deliverable. Work without tool execution = nothing happened.

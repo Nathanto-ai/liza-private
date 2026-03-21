@@ -119,30 +119,43 @@ func registerAgent(bb *db.Blackboard, projectRoot, agentID, role, terminal strin
 // unregisterAgent releases any task claim held by the agent, then removes
 // the agent from state. Both operations happen in a single atomic modify
 // so that an interrupt between them cannot leave a stuck task.
+// Retries up to 3 times on transient errors (e.g., Windows sharing violations).
 func unregisterAgent(bb *db.Blackboard, agentID string) {
 	logger := GetLogger()
-	now := time.Now().UTC()
 
-	err := bb.Modify(func(state *models.State) error {
-		agent, exists := state.Agents[agentID]
-		if !exists {
-			return nil
-		}
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		now := time.Now().UTC()
 
-		// Release task claim if agent held one
-		if agent.CurrentTask != nil {
-			taskID := *agent.CurrentTask
-			if task := state.FindTask(taskID); task != nil {
-				releaseTaskClaim(state, task, agent.Role, agentID, now)
+		err := bb.Modify(func(state *models.State) error {
+			agent, exists := state.Agents[agentID]
+			if !exists {
+				return nil
 			}
+
+			// Release task claim if agent held one
+			if agent.CurrentTask != nil {
+				taskID := *agent.CurrentTask
+				if task := state.FindTask(taskID); task != nil {
+					releaseTaskClaim(state, task, agent.Role, agentID, now)
+				}
+			}
+
+			delete(state.Agents, agentID)
+			return nil
+		})
+
+		if err == nil {
+			return
 		}
 
-		delete(state.Agents, agentID)
-		return nil
-	})
+		logger.Warn("Failed to unregister agent",
+			"error", err, "agent_id", agentID,
+			"attempt", attempt, "max_attempts", maxAttempts)
 
-	if err != nil {
-		logger.Warn("Failed to unregister agent", "error", err, "agent_id", agentID)
+		if attempt < maxAttempts {
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+		}
 	}
 }
 

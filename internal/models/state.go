@@ -235,12 +235,15 @@ func (t *Task) IsClaimable(role string, allTasks []Task) bool {
 		return false
 	}
 
-	// Check dependencies if allTasks is provided
+	// Check dependencies if allTasks is provided.
+	// Fix 44: SUPERSEDED deps are also considered satisfied. When a dependency
+	// was superseded, the planner replaced it with new tasks — downstream work
+	// should not be permanently blocked by an obsolete predecessor.
 	if allTasks != nil && len(t.DependsOn) > 0 {
 		for _, depID := range t.DependsOn {
 			depSatisfied := false
 			for _, task := range allTasks {
-				if task.ID == depID && task.Status == TaskStatusMerged {
+				if task.ID == depID && (task.Status == TaskStatusMerged || task.Status == TaskStatusSuperseded) {
 					depSatisfied = true
 					break
 				}

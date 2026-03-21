@@ -155,6 +155,15 @@ func AddTask(statePath, logPath string, input *AddTaskInput, plannerID string) (
 		}
 	}
 
+	// Fix 45: Reject tasks that reference liza-internal/framework concepts.
+	// When a coder task fails due to model behavior (e.g. calling task_complete
+	// instead of MCP tools), the planner creates repair/investigate/test/fix
+	// meta-tasks that the coder cannot implement because they target framework
+	// internals rather than application code. Block these at creation time.
+	if err := rejectFrameworkMetaTask(input); err != nil {
+		return nil, err
+	}
+
 	// Enforce stricter deduplication (description + scope) when config flag enabled
 	if state.Config.EnforceDeduplication {
 		for _, existing := range state.Tasks {
@@ -258,4 +267,41 @@ func AddTask(statePath, logPath string, input *AddTaskInput, plannerID string) (
 	}
 
 	return result, nil
+}
+
+// frameworkTerms are liza-internal phrases that indicate a task targets
+// framework/orchestrator behavior rather than application code. Tasks
+// containing these terms are rejected to prevent planner meta-task cascades.
+var frameworkTerms = []string{
+	"liza_submit_for_review",
+	"liza_submit_work",
+	"liza_submit_verdict",
+	"task_complete loop",
+	"task_complete tool",
+	"mcp tool",
+	"mcp validation",
+	"mcp server",
+	"coder agent",
+	"coder submission",
+	"coder workflow",
+	"supervisor",
+	"submission workflow",
+	"copilot-native",
+}
+
+// rejectFrameworkMetaTask returns an error if the task description or done_when
+// references liza-internal concepts that a coder cannot implement.
+func rejectFrameworkMetaTask(input *AddTaskInput) error {
+	descLower := strings.ToLower(input.Description)
+	doneLower := strings.ToLower(input.DoneWhen)
+	for _, term := range frameworkTerms {
+		if strings.Contains(descLower, term) || strings.Contains(doneLower, term) {
+			return fmt.Errorf(
+				"task %s rejected: description or done_when references framework-internal term %q — "+
+					"coders cannot implement tasks that target liza orchestrator behavior",
+				input.ID, term,
+			)
+		}
+	}
+	return nil
 }

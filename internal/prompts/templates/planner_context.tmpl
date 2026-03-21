@@ -101,6 +101,13 @@ Do NOT write implementation code, test code, configuration files, or any other p
 Your ONLY outputs are liza MCP tool calls (liza_add_task, liza_supersede_task, etc.).
 If you catch yourself about to create a file, STOP — that is a coder's job.
 
+ENVIRONMENT CONSTRAINTS (verify_commands):
+- Do NOT include `-race` in verify_commands or done_when on Windows. The race
+  detector requires CGO, which is unavailable in standard Windows Go installations.
+  Use `go test ./...` instead of `go test -race ./...`.
+- Do NOT include flags that require external toolchains (C compilers, linters not
+  in PATH) unless the spec explicitly requires them.
+
 INSTRUCTIONS:
 {{.WakeInstructions}}
 {{- end -}}

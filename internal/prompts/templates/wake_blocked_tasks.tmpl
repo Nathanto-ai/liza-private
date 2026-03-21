@@ -24,6 +24,7 @@ TASK: {{.ID}}
    - External dependency → document, possibly supersede task
    - Wrong approach → supersede task, create alternative (execute tools NOW)
    - Agent's own code bug (e.g., deadlock, infinite loop) → supersede task, create replacement with bug-fix focus
+   - If no MCP tool exists for the unblock action → fallback state edit + liza_validate
 3. For each blocked task, decide action:
    - To unblock: Supersede the blocked task and create a replacement with adjusted requirements via liza_add_task, then liza_supersede_task
    - To supersede: First create replacement tasks, then use liza_supersede_task tool

@@ -104,6 +104,15 @@ func executeAgent(ctx context.Context, config SupervisorConfig, prompt string) (
 		return 1, nil // Return failure code to trigger retry
 	}
 
+	// Check if parent context was cancelled (e.g., MCP inactivity timeout).
+	// This is NOT a fatal error — the supervisor should restart the session.
+	if err != nil && errors.Is(err, context.Canceled) {
+		logger.Warn("Agent execution cancelled (MCP inactivity or signal)",
+			"agent_id", config.AgentID,
+			"hint", "session will restart")
+		return 1, nil // Return failure code to trigger retry
+	}
+
 	// Check if timeout context was cancelled (even if Execute returned successfully)
 	if execCtx.Err() == context.DeadlineExceeded {
 		logger.Error("Agent execution timeout (context deadline exceeded)",
