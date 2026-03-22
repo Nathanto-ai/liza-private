@@ -108,6 +108,95 @@ type MergeResult struct {
 	Warnings          []string // non-fatal warnings from cleanup/metrics
 }
 
+// mergeAlreadyIntegrated handles the case where a task's worktree is missing but its
+// review_commit is already reachable from the integration branch. This allows automatic
+// recovery when an approved task's worktree was lost after the commit was integrated
+// (e.g. crash, manual cleanup, or file-sync interference).
+// Returns an error if the review_commit is NOT on integration — in that case the task
+// truly cannot proceed without its worktree.
+func mergeAlreadyIntegrated(
+	bb *db.Blackboard,
+	gitWrapper *git.Git,
+	state *models.State,
+	task *models.Task,
+	taskID, agentID, projectRoot string,
+) (*MergeResult, error) {
+	reviewCommit := *task.ReviewCommit
+	expectedCommit, err := gitWrapper.GetCommitSHA(reviewCommit)
+	if err != nil {
+		return nil, fmt.Errorf("task has no worktree and review_commit (%s) not found: %w", reviewCommit, err)
+	}
+
+	integrationBranch := state.Config.IntegrationBranch
+	if integrationBranch == "" {
+		integrationBranch = "main"
+	}
+	integrationRef := "refs/heads/" + integrationBranch
+
+	integrationHEAD, err := gitWrapper.GetCommitSHA(integrationRef)
+	if err != nil {
+		return nil, fmt.Errorf("task has no worktree and cannot read integration HEAD: %w", err)
+	}
+
+	isAncestor, err := gitWrapper.IsAncestor(expectedCommit, integrationHEAD)
+	if err != nil {
+		return nil, fmt.Errorf("task has no worktree and ancestry check failed: %w", err)
+	}
+
+	if !isAncestor {
+		return nil, fmt.Errorf("task has no worktree and review_commit (%s) is not on integration branch", expectedCommit[:7])
+	}
+
+	// The approved commit is already on integration — transition directly to MERGED.
+	log.Printf("wt-merge %s: worktree missing but review_commit %s is already on integration — auto-recovering to MERGED", taskID, expectedCommit[:7])
+
+	mergeCommit := integrationHEAD
+	err = bb.Modify(func(s *models.State) error {
+		t := s.FindTask(taskID)
+		if t == nil {
+			return &lizaerrors.NotFoundError{Entity: "task", ID: taskID}
+		}
+		if t.Status != models.TaskStatusApproved {
+			return fmt.Errorf("task %s status changed concurrently (now %s)", taskID, t.Status)
+		}
+		if err := t.Transition(models.TaskStatusMerged); err != nil {
+			return err
+		}
+		t.Worktree = nil
+		t.MergeCommit = &mergeCommit
+
+		if t.AssignedTo != nil {
+			s.ReleaseAgent(*t.AssignedTo)
+		}
+
+		reason := "worktree missing — review_commit already on integration"
+		t.History = append(t.History, models.TaskHistoryEntry{
+			Time:   time.Now(),
+			Event:  "merged",
+			Agent:  &agentID,
+			Commit: &mergeCommit,
+			Reason: &reason,
+			Extra:  map[string]any{"auto_recovered": true},
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to auto-recover task to MERGED: %w", err)
+	}
+
+	var warnings []string
+	if _, err := UpdateSprintMetrics(projectRoot); err != nil {
+		warnings = append(warnings, fmt.Sprintf("failed to update sprint metrics: %v", err))
+	}
+
+	return &MergeResult{
+		TaskID:      taskID,
+		MergeCommit: mergeCommit,
+		FastForward: true,
+		Warnings:    warnings,
+	}, nil
+}
+
 // appendUniqueAgentID adds an agent ID to failed_by if not already present
 func appendUniqueAgentID(failedBy []string, agentID string) []string {
 	if slices.Contains(failedBy, agentID) {
@@ -178,6 +267,47 @@ func markIntegrationFailed(bb *db.Blackboard, taskID, agentID, reason, mergeComm
 	})
 }
 
+// bootstrapScripts are the conventional project bootstrap scripts checked in order.
+// The first one that exists is executed to install dependencies before verify_commands.
+var bootstrapScripts = []string{
+	"scripts/bootstrap.ps1",
+	"scripts/bootstrap.sh",
+	"scripts/bootstrap.bat",
+}
+
+// runBootstrapInDir runs the first available project bootstrap script in the given
+// directory. This ensures verify worktrees have installed dependencies before
+// verify_commands execute. Errors are logged but non-fatal — verification will
+// still run and report its own failures.
+func runBootstrapInDir(dir string) {
+	for _, script := range bootstrapScripts {
+		scriptPath := filepath.Join(dir, script)
+		if _, err := os.Stat(scriptPath); err != nil {
+			continue
+		}
+
+		log.Printf("wt-merge: running bootstrap script %s in %s", script, dir)
+		var cmd *exec.Cmd
+		if strings.HasSuffix(script, ".ps1") {
+			cmd = exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
+		} else if strings.HasSuffix(script, ".bat") {
+			cmd = exec.Command("cmd", "/c", scriptPath)
+		} else {
+			cmd = makeShellCmd(scriptPath)
+		}
+		cmd.Dir = dir
+		var buf bytes.Buffer
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		if err := cmd.Run(); err != nil {
+			log.Printf("wt-merge: bootstrap script %s failed (non-fatal): %v\n%s", script, err, buf.String())
+		} else {
+			log.Printf("wt-merge: bootstrap script %s completed successfully", script)
+		}
+		return // Only run the first matching script
+	}
+}
+
 // MergeWorktree merges an approved task into the integration branch.
 // This is the final step in the task lifecycle, integrating completed work.
 // Returns IntegrationFailedError if merge conflicts or integration tests fail.
@@ -205,16 +335,20 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 		return nil, fmt.Errorf("task must be APPROVED to merge (current status: %s)", task.Status)
 	}
 
-	if task.Worktree == nil {
-		return nil, fmt.Errorf("task has no worktree")
-	}
-
 	if task.ReviewCommit == nil {
 		return nil, fmt.Errorf("task has no review_commit")
 	}
 
 	// Initialize git wrapper
 	gitWrapper := git.New(projectRoot)
+
+	// Fix 52: If the worktree is missing but the approved review_commit is already
+	// reachable from the integration branch, skip directly to the MERGED transition.
+	// This recovers from scenarios where the worktree was lost (crash, manual cleanup,
+	// OneDrive interference) after the commit was already effectively integrated.
+	if task.Worktree == nil {
+		return mergeAlreadyIntegrated(bb, gitWrapper, state, task, taskID, agentID, projectRoot)
+	}
 
 	// Get worktree HEAD and verify it matches review_commit
 	wtHEAD, err := gitWrapper.GetWorktreeHEAD(taskID)
@@ -426,6 +560,13 @@ func MergeWorktree(projectRoot, taskID, agentID string) (*MergeResult, error) {
 				_ = rmCmd.Run()
 			}
 		}()
+
+		// Fix 53: Run project bootstrap script in the verify worktree before verify_commands.
+		// A bare git checkout has no installed dependencies, so verify_commands that
+		// invoke test runners or build tools will always fail without bootstrapping first.
+		if verifyWorktreeCreated {
+			runBootstrapInDir(verifyDir)
+		}
 
 		// Use the shared verification executor (same path as post-submission verify)
 		cfg := verify.DefaultConfig()
