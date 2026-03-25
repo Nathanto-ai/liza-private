@@ -612,3 +612,108 @@ func TestInitCommand_WritesClaudeSettings(t *testing.T) {
 		t.Errorf("Expected liza MCP tools in allow array (e.g., mcp__liza__liza_add_task)")
 	}
 }
+
+func TestInitCommand_CreatesGitignoreEntries(t *testing.T) {
+	gitDir := setupGitRepo(t)
+	defer os.RemoveAll(gitDir)
+	setupGlobalLiza(t)
+
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(gitDir)
+
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
+
+	if err := InitCommand("Test goal", "specs/vision.md", nil); err != nil {
+		t.Fatalf("InitCommand failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(gitDir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("Failed to read .gitignore: %v", err)
+	}
+	lines := string(content)
+	if !strings.Contains(lines, ".liza/") {
+		t.Errorf(".gitignore missing .liza/ entry; got:\n%s", lines)
+	}
+	if !strings.Contains(lines, ".worktrees/") {
+		t.Errorf(".gitignore missing .worktrees/ entry; got:\n%s", lines)
+	}
+}
+
+func TestInitCommand_GitignorePreservesExisting(t *testing.T) {
+	gitDir := setupGitRepo(t)
+	defer os.RemoveAll(gitDir)
+	setupGlobalLiza(t)
+
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(gitDir)
+
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
+
+	// Pre-create .gitignore with existing content and one of the entries
+	existing := "node_modules/\n.liza/\n"
+	os.WriteFile(filepath.Join(gitDir, ".gitignore"), []byte(existing), 0644)
+
+	if err := InitCommand("Test goal", "specs/vision.md", nil); err != nil {
+		t.Fatalf("InitCommand failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(gitDir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("Failed to read .gitignore: %v", err)
+	}
+	lines := string(content)
+	// .liza/ should appear exactly once (not duplicated)
+	if strings.Count(lines, ".liza/") != 1 {
+		t.Errorf(".liza/ should appear once; got:\n%s", lines)
+	}
+	// .worktrees/ should have been appended
+	if !strings.Contains(lines, ".worktrees/") {
+		t.Errorf(".gitignore missing .worktrees/ entry; got:\n%s", lines)
+	}
+	// Original content preserved
+	if !strings.Contains(lines, "node_modules/") {
+		t.Errorf("original .gitignore content lost; got:\n%s", lines)
+	}
+}
+
+func TestEnsureGitignoreEntries_NoFileYet(t *testing.T) {
+	tmpDir := t.TempDir()
+	gitignorePath := filepath.Join(tmpDir, ".gitignore")
+
+	if err := ensureGitignoreEntries(tmpDir); err != nil {
+		t.Fatalf("ensureGitignoreEntries failed: %v", err)
+	}
+
+	content, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatalf("Failed to read .gitignore: %v", err)
+	}
+	lines := string(content)
+	if !strings.Contains(lines, ".liza/") || !strings.Contains(lines, ".worktrees/") {
+		t.Errorf("expected both entries; got:\n%s", lines)
+	}
+}
+
+func TestEnsureGitignoreEntries_Idempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Run twice
+	if err := ensureGitignoreEntries(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureGitignoreEntries(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	content, _ := os.ReadFile(filepath.Join(tmpDir, ".gitignore"))
+	lines := string(content)
+	if strings.Count(lines, ".liza/") != 1 {
+		t.Errorf(".liza/ duplicated; got:\n%s", lines)
+	}
+	if strings.Count(lines, ".worktrees/") != 1 {
+		t.Errorf(".worktrees/ duplicated; got:\n%s", lines)
+	}
+}

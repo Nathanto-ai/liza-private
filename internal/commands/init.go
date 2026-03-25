@@ -294,6 +294,12 @@ func InitCommand(description string, specRef string, stdin io.Reader) error {
 		return fmt.Errorf("failed to create lock file: %w", err)
 	}
 
+	// Ensure .liza/ and .worktrees/ are in .gitignore so runtime
+	// artifacts don't participate in review/merge diffs (Issue #4).
+	if err := ensureGitignoreEntries(lizaPaths.ProjectRoot()); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to update .gitignore: %v\n", err)
+	}
+
 	// Create integration branch if it doesn't exist
 	if err := createIntegrationBranch(); err != nil {
 		// Don't fail the entire init if branch creation fails
@@ -341,6 +347,57 @@ func createIntegrationBranch() error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git branch failed: %w: %s", err, string(output))
+	}
+
+	return nil
+}
+
+// ensureGitignoreEntries ensures .liza/ and .worktrees/ are listed in
+// the project's .gitignore so runtime artifacts stay out of version control.
+// It creates the file if it doesn't exist and appends only missing entries.
+func ensureGitignoreEntries(projectRoot string) error {
+	gitignorePath := filepath.Join(projectRoot, ".gitignore")
+
+	required := []string{".liza/", ".worktrees/"}
+
+	existing := make(map[string]bool)
+	content, err := os.ReadFile(gitignorePath)
+	if err == nil {
+		for _, line := range strings.Split(string(content), "\n") {
+			existing[strings.TrimSpace(line)] = true
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	var toAdd []string
+	for _, entry := range required {
+		if !existing[entry] {
+			toAdd = append(toAdd, entry)
+		}
+	}
+
+	if len(toAdd) == 0 {
+		return nil
+	}
+
+	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// If file exists and doesn't end with newline, add one first
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		if _, err := f.WriteString("\n"); err != nil {
+			return err
+		}
+	}
+
+	for _, entry := range toAdd {
+		if _, err := f.WriteString(entry + "\n"); err != nil {
+			return err
+		}
 	}
 
 	return nil
