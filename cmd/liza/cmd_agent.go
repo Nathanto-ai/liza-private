@@ -88,6 +88,7 @@ Example:
 		interactive, _ := cmd.Flags().GetBool("interactive")
 		logEnabled, _ := cmd.Flags().GetBool("log")
 		noLog, _ := cmd.Flags().GetBool("no-log")
+		autoApprove, _ := cmd.Flags().GetBool("auto-approve")
 
 		if !slices.Contains([]string{"claude", "codex", "gemini", "mistral", "kimi", "copilot"}, cliName) {
 			return fmt.Errorf("invalid CLI: %s (must be claude, codex, gemini, mistral, kimi, or copilot)", cliName)
@@ -168,6 +169,7 @@ Example:
 					SpecsDir:     specsDir,
 					CLIName:      cliName,
 					Interactive:  interactive,
+					AutoApprove:  autoApprove,
 					InitialTask:  initialTask,
 					Executor:     agent.NewDefaultCLIExecutor(outputsDir),
 					CopilotModel: modelOverride,
@@ -186,6 +188,7 @@ Example:
 			SpecsDir:     specsDir,
 			CLIName:      cliName,
 			Interactive:  interactive,
+			AutoApprove:  autoApprove,
 			InitialTask:  initialTask,
 			Executor:     agent.NewDefaultCLIExecutor(outputsDir),
 			CopilotModel: modelOverride,
@@ -284,6 +287,7 @@ func init() {
 	agentCmd.Flags().BoolP("interactive", "i", false, "Print prompt location, don't execute CLI")
 	agentCmd.Flags().Bool("log", false, "Enable saving agent output to .liza/agent-outputs/ (default unless --interactive)")
 	agentCmd.Flags().Bool("no-log", false, "Disable saving agent output to .liza/agent-outputs/")
+	agentCmd.Flags().Bool("auto-approve", false, "Skip CLI permission prompts (--dangerously-skip-permissions / --allow-all-tools)")
 
 	// Recover-task command flags
 	recoverTaskCmd.Flags().Bool("force", false, "clean up git artifacts even if task is not in state")
