@@ -569,6 +569,7 @@ The contract is a capability test. It requires meta-cognitive machinery—the ab
 | Provider | Classification                          | Notes |
 |----------|-----------------------------------------|-------|
 | Claude Opus 4.x | Fully compatible | Reference provider |
+| GitHub Copilot (GPT-5-mini) | Fully compatible | Via `gh copilot` CLI with configurable model |
 | GPT-5.x-Codex | Fully compatible | Equally capable |
 | Kimi 2.5 | Compatible but poor on real-world tasks | Responsive to tooling feedback |
 | Mistral Devstral-2 | Partial | Requires explicit activation and supervision |

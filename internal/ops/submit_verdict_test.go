@@ -3,6 +3,7 @@ package ops
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -481,6 +482,9 @@ func TestSubmitVerdict_ReviewCommitMismatch(t *testing.T) {
 }
 
 func TestSubmitVerdict_StatErrorNotSilenced(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows returns ErrNotExist (not ENOTDIR) when a path component is a regular file")
+	}
 	tmpDir := t.TempDir()
 	stateFile, _ := testhelpers.SetupLizaDir(t, tmpDir)
 

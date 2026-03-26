@@ -15,6 +15,7 @@ from the YAML at load time — no hardcoded role constants.
 | Code Plan Reviewer | `code-plan-reviewer` | `code-plan-reviewer-` | `code-plan-reviewer-1`, `code-plan-reviewer-2` |
 | Coder | `coder` | `coder-` | `coder-1`, `coder-2` |
 | Code Reviewer | `code-reviewer` | `code-reviewer-` | `code-reviewer-1`, `code-reviewer-2` |
+| Auditor | `auditor` | `auditor-` | `auditor-1`, `auditor-2` |
 
 **Usage Rules:**
 - **Prose/documentation:** Use canonical name ("Code Reviewer validates...")
@@ -33,6 +34,8 @@ Running multiple agents of the same role is fully supported:
 | Coder | Yes | Each coder claims independent tasks; no coordination needed |
 | Code Reviewer | Yes | Reviewers claim independent review tasks; merge safety via working-tree-less `liza wt-merge` |
 | Orchestrator | No (`max-instances: 1`) | Singular orchestrator enforced at registration (see [Declarative Role Definitions](../build/3%20-%20Declarative%20Role%20Definitions.md#constraints)) |
+| Planner | Yes | Multiple planners can process blocked tasks concurrently |
+| Auditor | Yes | Auditors review code quality, architecture, and compliance |
 
 **Concurrency Safety:**
 - Task claiming: File locking on `state.yaml` ensures atomic claim operations
@@ -453,7 +456,7 @@ liza agent coder --agent-id coder-1
 
 | Env Variable | Required | Format | Example |
 |--------------|----------|--------|---------|
-| `LIZA_AGENT_ID` | Yes | `{role}-{number}` | `coder-1`, `code-reviewer-2`, `orchestrator-1` |
+| `LIZA_AGENT_ID` | Yes | `{role}-{number}` | `coder-1`, `code-reviewer-2`, `planner-1`, `auditor-1` |
 
 **Rationale:** Prevents identity collision when multiple agents spawn simultaneously. Agent cannot choose its own name — supervisor controls the namespace.
 

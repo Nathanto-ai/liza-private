@@ -115,7 +115,7 @@ Operational reference content (blackboard fields, anomaly types, etc.) is inline
 
 **3. Start Agents**
 
-Agent identity defaults to the first `{role}-N` not already registered with a valid lease (e.g., `coder-1`, or `coder-2` if `coder-1` is active). Override with `--agent-id` or the `LIZA_AGENT_ID` environment variable.
+Agent identity defaults to the first `{role}-N` not already registered with a valid lease (for example `coder-1`, or `coder-2` if `coder-1` is active). Override with `--agent-id` or the `LIZA_AGENT_ID` environment variable. Explicit IDs must follow the pattern `{role}-{number}`.
 
 Roles are organized into two phases. Which agents you need depends on your entry point:
 
@@ -158,7 +158,14 @@ liza agent coder
 liza agent code-reviewer
 ```
 
-Each agent command accepts a `--cli` flag to select the coding agent CLI: `claude` (default), `codex`, `gemini`, `mistral`, or `kimi`. For example: `liza agent coder --cli gemini`.
+Terminal 4 — Auditor (optional):
+```bash
+liza agent auditor --agent-id auditor-1
+```
+
+Each agent command accepts a `--cli` flag to select the coding agent CLI: `claude` (default), `codex`, `gemini`, `mistral`, or `kimi`. For example: `liza agent coder --agent-id coder-1 --cli gemini`.
+
+Pass `--auto-approve` to skip CLI permission prompts (passes `--dangerously-skip-permissions` to the underlying CLI). This eliminates human confirmation for file edits, command execution, and MCP tool calls. Recommended for unattended/headless operation where `.claude/settings.json` already grants all necessary permissions. Without `--auto-approve`, the CLI may block on interactive prompts that can't be answered in `-p` mode.
 
 Agent output is automatically persisted to `.liza/agent-outputs/` (stdout as `.txt`, stderr as `.err`). Pass `--no-log` to disable. Persisted files are automatically masked — secret values from environment variables (API keys, tokens, passwords) are replaced with `***`. Live terminal output remains unmasked. Logging is automatically disabled in `-i` (interactive) mode.
 See [Analyzing Agent Logs](#analyzing-agent-logs) for analysis tools.
@@ -315,13 +322,17 @@ IN_PROGRESS → CHECKPOINT ──→ COMPLETED ──→ (new sprint) IN_PROGRES
 
 ### CLI Commands
 
-The `liza` binary provides all system operations. Key commands:
+The `liza` binary provides all system operations. Commands are organized by category:
+
+**Setup & Validation:**
 
 | Command | Purpose |
 |---------|---------|
 | **Setup & Init** | |
 | `liza setup` | One-time global setup of contracts and skills to `~/.liza/` |
 | `liza init <goal> --spec <spec_ref>` | Initialize `.liza/` directory with blackboard (spec_ref defaults to specs/vision.md) |
+| `liza validate-spec <spec_ref>` | Validate a spec file against Liza spec conventions |
+| `liza version` | Print Liza version |
 | **Agents & Monitoring** | |
 | `liza agent <role> [--agent-id <id>]` | Agent supervisor (start, restart, backoff loop; ID auto-assigned if omitted) |
 | `liza watch` | Monitor blackboard, alert on anomalies, auto-checkpoint on circuit-breaker |
@@ -357,9 +368,48 @@ The `liza` binary provides all system operations. Key commands:
 | `liza clear-stale-review-claims` | Clear expired review leases |
 | `liza get <query>` | Query state data (tasks, agents, etc.) |
 
+Roles include the pipeline runtime roles defined by the active configuration. Common flags include `--cli <name>`, `--auto-approve`, `--agent-id <id>`, `--no-log`, and `-i` (interactive).
+
 **Important:** The supervisor claims tasks *before* starting the agent CLI. This avoids interactive permission prompts in non-interactive mode. Agents receive their assigned task in the bootstrap prompt and should NOT call claim commands directly.
 
+### MCP Tools
+
+Agents interact with Liza via MCP tools (JSON-RPC 2.0 over stdio). Every CLI mutation has an MCP equivalent. The MCP server (`liza-mcp`) registers 22 tools:
+
+**Read-Only:**
+`liza_get`, `liza_status`, `liza_validate`, `liza_version`
+
+**Task Mutations:**
+`liza_add_task`, `liza_claim_task`, `liza_submit_for_review`, `liza_handoff`, `liza_submit_verdict`, `liza_mark_blocked`, `liza_release_claim`, `liza_supersede_task`, `liza_submit_audit_finding`
+
+**Complex Operations:**
+`liza_wt_create`, `liza_wt_delete`, `liza_wt_merge`, `liza_analyze`, `liza_update_sprint_metrics`, `liza_sprint_checkpoint`, `liza_clear_stale_review_claims`, `liza_write_checkpoint`, `liza_delete_agent`
+
+**Resources (MCP resource protocol):**
+`liza://state` (full state), `liza://tasks` (task list), `liza://agents` (agent list)
+
+All MCP tools must be listed in `.claude/settings.json` permissions for Claude Code to invoke them. `liza init` generates this automatically.
+
 See [Architecture Overview](../specs/architecture/overview.md) for detailed component descriptions.
+
+### Role Enforcement
+
+Both CLI commands and MCP tools enforce role-based access control. Mutation commands validate the calling agent's role against an allowlist before executing.
+
+**Role → Allowed Commands:**
+
+| Role | Commands |
+|------|----------|
+| Coder | `claim-task`, `submit-for-review`, `handoff`, `write-checkpoint`, `wt-create`, `wt-delete`, `mark-blocked`, `release-claim`, `liza_exec` |
+| Code Reviewer | `submit-verdict`, `wt-merge`, `claim-review`, `clear-stale-review-claims`, `wt-create`, `wt-delete`, `mark-blocked`, `release-claim` |
+| Planner | `add-task`, `supersede-task`, `sprint-checkpoint`, `delete-agent`, `update-sprint-metrics`, `analyze` |
+| Auditor | `submit-audit-finding`, `analyze`, `mark-blocked` |
+
+**Behavior:**
+- CLI commands extract the agent role from the `--agent-id` flag (e.g., `coder-1` → coder role)
+- MCP tools are filtered per-role — non-permitted tools are not registered
+- MCP handlers additionally call `requireRole()` as defense-in-depth
+- Empty agent ID (human/manual usage) bypasses the CLI check for backward compatibility
 
 ### Configuring Claude Code (MCP)
 

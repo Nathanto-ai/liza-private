@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1051,7 +1052,7 @@ func TestMergeWorktree_NoTestScriptWarning(t *testing.T) {
 
 	var result *MergeResult
 	var err error
-	logOutput := captureLogOutput(t, func() {
+	captureLogOutput(t, func() {
 		result, err = MergeWorktree(tmpDir, taskID, agentID)
 	})
 	if err != nil {
@@ -1065,12 +1066,8 @@ func TestMergeWorktree_NoTestScriptWarning(t *testing.T) {
 	if !result.NoTestScriptFound {
 		t.Error("NoTestScriptFound should be true when integration-test.sh is missing")
 	}
-	if !strings.Contains(logOutput, "WARNING") {
-		t.Fatalf("expected warning log when integration-test.sh is missing, got logs: %q", logOutput)
-	}
-	if !strings.Contains(logOutput, "integration test script not found") {
-		t.Errorf("expected missing-script warning log, got logs: %q", logOutput)
-	}
+
+	// No warning log when script simply doesn't exist — this is a normal case
 
 	// Verify state updated to MERGED
 	state := readStateForTest(t, stateFile)
@@ -1157,7 +1154,78 @@ func TestMergeWorktree_TestsRanInHistory(t *testing.T) {
 	}
 }
 
+func TestMergeWorktree_VerifyCommandFailure(t *testing.T) {
+	taskID := "merge-verifyfail"
+	agentID := "coder-1"
+	tmpDir, stateFile := setupMergeTestRepo(t, taskID, agentID)
+
+	// Add a failing verify_command to the task
+	bb := db.New(stateFile)
+	if err := bb.Modify(func(s *models.State) error {
+		task := s.FindTask(taskID)
+		if task != nil {
+			if runtime.GOOS == "windows" {
+				task.VerifyCommands = []string{"exit /b 1"}
+			} else {
+				task.VerifyCommands = []string{"exit 1"}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("Failed to add verify_commands: %v", err)
+	}
+
+	_, err := MergeWorktree(tmpDir, taskID, agentID)
+	if err == nil {
+		t.Fatal("Expected error for verify failure, got nil")
+	}
+
+	var intErr *IntegrationFailedError
+	if !errors.As(err, &intErr) {
+		t.Fatalf("Expected *IntegrationFailedError, got %T: %v", err, err)
+	}
+
+	if intErr.Reason != IntegrationReasonTestsFailed {
+		t.Errorf("Reason = %q, want %q", intErr.Reason, IntegrationReasonTestsFailed)
+	}
+
+	// Verify state updated to INTEGRATION_FAILED
+	state := readStateForTest(t, stateFile)
+	task := state.FindTask(taskID)
+	if task == nil {
+		t.Fatal("Task not found in state")
+	}
+	if task.Status != models.TaskStatusIntegrationFailed {
+		t.Errorf("Task status = %v, want INTEGRATION_FAILED", task.Status)
+	}
+
+	// Verify the VerificationResult was persisted
+	if task.VerificationResult == nil {
+		t.Fatal("Expected VerificationResult to be persisted on task")
+	}
+	if task.VerificationResult.Passed {
+		t.Error("VerificationResult.Passed should be false")
+	}
+
+	// Verify integration branch was rolled back
+	cmd := exec.Command("git", "-C", tmpDir, "checkout", "integration")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to checkout integration: %v", err)
+	}
+	cmd = exec.Command("git", "-C", tmpDir, "log", "--oneline")
+	logOutput, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get git log: %v", err)
+	}
+	if strings.Contains(string(logOutput), "Test commit for "+taskID) {
+		t.Error("Integration branch should have been rolled back, but still contains the merged commit")
+	}
+}
+
 func TestMergeWorktree_NonNotExistStatErrorNotMisclassified(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows returns ErrNotExist (not ENOTDIR) when a path component is a regular file")
+	}
 	taskID := "merge-script-stat-error"
 	agentID := "coder-1"
 	tmpDir, stateFile := setupMergeTestRepo(t, taskID, agentID)
@@ -1539,5 +1607,260 @@ func TestMarkIntegrationFailed_RefreshesLease(t *testing.T) {
 	reviewerAgent := state.Agents[reviewerID]
 	if reviewerAgent.LeaseExpires != nil {
 		t.Errorf("Reviewer agent LeaseExpires = %v, want nil (reviewer was not the target)", reviewerAgent.LeaseExpires)
+	}
+}
+
+// Fix 52: Test auto-recovery when worktree is missing but review_commit is already on integration.
+func TestMergeWorktree_MissingWorktreeAlreadyIntegrated(t *testing.T) {
+	taskID := "merge-no-wt"
+	agentID := "coder-1"
+	tmpDir := t.TempDir()
+
+	testhelpers.SetupTestGitRepo(t, tmpDir)
+	stateFile, _ := testhelpers.SetupLizaDir(t, tmpDir)
+
+	// Create integration branch
+	cmd := exec.Command("git", "-C", tmpDir, "checkout", "-b", "integration")
+	output, err := cmd.CombinedOutput()
+	if err != nil && !strings.Contains(string(output), "already exists") {
+		t.Fatalf("Failed to create integration branch: %v\nOutput: %s", err, output)
+	}
+	if strings.Contains(string(output), "already exists") {
+		cmd2 := exec.Command("git", "-C", tmpDir, "checkout", "integration")
+		if err := cmd2.Run(); err != nil {
+			t.Fatalf("Failed to checkout integration branch: %v", err)
+		}
+	}
+
+	// Make a commit directly on integration (simulating the reviewed commit already merged)
+	testFile := filepath.Join(tmpDir, "test-"+taskID+".txt")
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+	cmd = exec.Command("git", "-C", tmpDir, "add", "test-"+taskID+".txt")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to git add: %v", err)
+	}
+	cmd = exec.Command("git", "-C", tmpDir, "commit", "-m", "Reviewed commit for "+taskID)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to git commit: %v", err)
+	}
+
+	// Get the commit SHA
+	cmd = exec.Command("git", "-C", tmpDir, "rev-parse", "HEAD")
+	shaOutput, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get commit SHA: %v", err)
+	}
+	reviewCommit := strings.TrimSpace(string(shaOutput))
+
+	// Create state with APPROVED task but NO worktree
+	now := time.Now().UTC()
+	initialState := testhelpers.CreateValidState()
+	initialState.Config.IntegrationBranch = "integration"
+
+	baseCommit := "base123"
+	approvedBy := "code-reviewer-1"
+	task := models.Task{
+		ID:           taskID,
+		Description:  "Test task with missing worktree",
+		Status:       models.TaskStatusApproved,
+		Priority:     1,
+		Created:      now,
+		SpecRef:      "README.md",
+		DoneWhen:     "Done",
+		Scope:        "Test",
+		RolePair:     "coding-pair",
+		Worktree:     nil, // <-- missing worktree
+		AssignedTo:   &agentID,
+		BaseCommit:   &baseCommit,
+		ReviewCommit: &reviewCommit,
+		ApprovedBy:   &approvedBy,
+		History:      []models.TaskHistoryEntry{},
+	}
+
+	initialState.Tasks = append(initialState.Tasks, task)
+	testhelpers.WriteInitialState(t, stateFile, initialState)
+
+	result, err := MergeWorktree(tmpDir, taskID, agentID)
+	if err != nil {
+		t.Fatalf("MergeWorktree() unexpected error: %v", err)
+	}
+
+	if result.TaskID != taskID {
+		t.Errorf("TaskID = %q, want %q", result.TaskID, taskID)
+	}
+	if result.MergeCommit == "" {
+		t.Error("MergeCommit should not be empty")
+	}
+
+	// Verify state updated to MERGED
+	state := readStateForTest(t, stateFile)
+	mergedTask := state.FindTask(taskID)
+	if mergedTask == nil {
+		t.Fatal("Task not found in state")
+	}
+	if mergedTask.Status != models.TaskStatusMerged {
+		t.Errorf("Task status = %v, want MERGED", mergedTask.Status)
+	}
+	if mergedTask.MergeCommit == nil {
+		t.Error("MergeCommit should be set")
+	}
+
+	// Verify history entry has auto_recovered flag
+	if len(mergedTask.History) == 0 {
+		t.Fatal("Expected history entry")
+	}
+	lastHistory := mergedTask.History[len(mergedTask.History)-1]
+	if lastHistory.Event != "merged" {
+		t.Errorf("Last history event = %q, want 'merged'", lastHistory.Event)
+	}
+	if lastHistory.Extra == nil || lastHistory.Extra["auto_recovered"] != true {
+		t.Error("Expected auto_recovered=true in history Extra")
+	}
+}
+
+// Fix 52: Test that missing worktree with review_commit NOT on integration still fails.
+func TestMergeWorktree_MissingWorktreeNotIntegrated(t *testing.T) {
+	taskID := "merge-no-wt-fail"
+	agentID := "coder-1"
+	tmpDir := t.TempDir()
+
+	testhelpers.SetupTestGitRepo(t, tmpDir)
+	stateFile, _ := testhelpers.SetupLizaDir(t, tmpDir)
+
+	// Create integration branch
+	cmd := exec.Command("git", "-C", tmpDir, "checkout", "-b", "integration")
+	output, err := cmd.CombinedOutput()
+	if err != nil && !strings.Contains(string(output), "already exists") {
+		t.Fatalf("Failed to create integration branch: %v\nOutput: %s", err, output)
+	}
+	if strings.Contains(string(output), "already exists") {
+		cmd2 := exec.Command("git", "-C", tmpDir, "checkout", "integration")
+		if err := cmd2.Run(); err != nil {
+			t.Fatalf("Failed to checkout integration branch: %v", err)
+		}
+	}
+
+	// Make a commit on a separate branch (NOT on integration)
+	cmd = exec.Command("git", "-C", tmpDir, "checkout", "-b", "task/"+taskID)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create task branch: %v", err)
+	}
+	testFile := filepath.Join(tmpDir, "test-"+taskID+".txt")
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+	cmd = exec.Command("git", "-C", tmpDir, "add", "test-"+taskID+".txt")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to git add: %v", err)
+	}
+	cmd = exec.Command("git", "-C", tmpDir, "commit", "-m", "Reviewed commit on separate branch")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to git commit: %v", err)
+	}
+
+	cmd = exec.Command("git", "-C", tmpDir, "rev-parse", "HEAD")
+	shaOutput, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get commit SHA: %v", err)
+	}
+	reviewCommit := strings.TrimSpace(string(shaOutput))
+
+	// Switch back to integration
+	cmd = exec.Command("git", "-C", tmpDir, "checkout", "integration")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to checkout integration: %v", err)
+	}
+
+	// Create state with APPROVED task, NO worktree, commit NOT on integration
+	now := time.Now().UTC()
+	initialState := testhelpers.CreateValidState()
+	initialState.Config.IntegrationBranch = "integration"
+
+	baseCommit := "base123"
+	approvedBy := "code-reviewer-1"
+	task := models.Task{
+		ID:           taskID,
+		Description:  "Test task with missing worktree",
+		Status:       models.TaskStatusApproved,
+		Priority:     1,
+		Created:      now,
+		SpecRef:      "README.md",
+		DoneWhen:     "Done",
+		Scope:        "Test",
+		RolePair:     "coding-pair",
+		Worktree:     nil,
+		AssignedTo:   &agentID,
+		BaseCommit:   &baseCommit,
+		ReviewCommit: &reviewCommit,
+		ApprovedBy:   &approvedBy,
+		History:      []models.TaskHistoryEntry{},
+	}
+
+	initialState.Tasks = append(initialState.Tasks, task)
+	testhelpers.WriteInitialState(t, stateFile, initialState)
+
+	_, err = MergeWorktree(tmpDir, taskID, agentID)
+	if err == nil {
+		t.Fatal("Expected error for missing worktree with commit not on integration")
+	}
+	if !strings.Contains(err.Error(), "not on integration branch") {
+		t.Errorf("Error = %q, want it to contain 'not on integration branch'", err.Error())
+	}
+
+	// Verify task is still APPROVED (no state change)
+	state := readStateForTest(t, stateFile)
+	unchanged := state.FindTask(taskID)
+	if unchanged == nil {
+		t.Fatal("Task not found")
+	}
+	if unchanged.Status != models.TaskStatusApproved {
+		t.Errorf("Task status = %v, want APPROVED (unchanged)", unchanged.Status)
+	}
+}
+
+// Fix 53: Test that runBootstrapInDir runs a bootstrap script when present.
+func TestRunBootstrapInDir(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a bootstrap script that creates a marker file
+	scriptsDir := filepath.Join(tmpDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0755); err != nil {
+		t.Fatalf("Failed to create scripts dir: %v", err)
+	}
+
+	markerFile := filepath.Join(tmpDir, "bootstrapped.marker")
+	if runtime.GOOS == "windows" {
+		// Create a .bat script on Windows
+		script := fmt.Sprintf("@echo off\necho bootstrapped > \"%s\"\n", markerFile)
+		if err := os.WriteFile(filepath.Join(scriptsDir, "bootstrap.bat"), []byte(script), 0755); err != nil {
+			t.Fatalf("Failed to write script: %v", err)
+		}
+	} else {
+		script := fmt.Sprintf("#!/bin/sh\necho bootstrapped > '%s'\n", markerFile)
+		if err := os.WriteFile(filepath.Join(scriptsDir, "bootstrap.sh"), []byte(script), 0755); err != nil {
+			t.Fatalf("Failed to write script: %v", err)
+		}
+	}
+
+	runBootstrapInDir(tmpDir)
+
+	if _, err := os.Stat(markerFile); err != nil {
+		t.Errorf("Bootstrap script did not run — marker file missing: %v", err)
+	}
+}
+
+// Fix 53: Test that runBootstrapInDir is a no-op when no script exists.
+func TestRunBootstrapInDir_NoScript(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Should not panic or error — just a no-op
+	logOutput := captureLogOutput(t, func() {
+		runBootstrapInDir(tmpDir)
+	})
+
+	if strings.Contains(logOutput, "running bootstrap script") {
+		t.Error("Should not have attempted to run any bootstrap script")
 	}
 }

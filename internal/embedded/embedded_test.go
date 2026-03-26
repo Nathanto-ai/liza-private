@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -297,7 +298,7 @@ func TestWriteGlobalFiles(t *testing.T) {
 		}
 
 		// Verify file permissions
-		if info.Mode().Perm() != 0644 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0644 {
 			t.Errorf("File %s has wrong permissions: got %o, want 0644", file, info.Mode().Perm())
 		}
 	}
@@ -784,7 +785,7 @@ func TestWriteClaudeSettings_NewFile(t *testing.T) {
 	}
 
 	// Verify file permissions
-	if info.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0644 {
 		t.Errorf("File has wrong permissions: got %o, want 0644", info.Mode().Perm())
 	}
 
@@ -1032,8 +1033,8 @@ func TestWriteHooks(t *testing.T) {
 			t.Fatalf("hook file %s not found: %v", name, err)
 		}
 
-		// Verify executable permission
-		if info.Mode()&0111 == 0 {
+		// Verify executable permission (skip on Windows — no Unix permission bits)
+		if runtime.GOOS != "windows" && info.Mode()&0111 == 0 {
 			t.Errorf("hook file %s is not executable: %v", name, info.Mode())
 		}
 

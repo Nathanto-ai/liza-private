@@ -502,3 +502,181 @@ func TestRecoverTask_MissingReviewCommitCorruption(t *testing.T) {
 		t.Error("Approvals should be nil after reset")
 	}
 }
+
+// setupTaskInStatus creates a state with the given task in the specified status.
+// For mid-pipeline statuses, sets up appropriate agent claims and fields.
+func setupTaskInStatus(t *testing.T, taskID string, status models.TaskStatus) (string, string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	stateFile, _ := testhelpers.SetupLizaDir(t, tmpDir)
+
+	now := time.Now().UTC()
+	leaseExpires := now.Add(-10 * time.Minute)
+	worktreeRef := ".worktrees/" + taskID
+	reviewCommit := "abc123"
+	baseCommit := "def456"
+	mergeCommit := "merge789"
+	blockedReason := "some reason"
+
+	state := testhelpers.CreateValidState()
+
+	task := models.Task{
+		ID:          taskID,
+		Description: "test task",
+		Status:      status,
+		Priority:    1,
+		SpecRef:     "spec.md",
+		DoneWhen:    "tests pass",
+		Scope:       "small",
+		Worktree:    &worktreeRef,
+		BaseCommit:  &baseCommit,
+	}
+
+	switch status {
+	case models.TaskStatusIntegrationFailed:
+		task.AssignedTo = strPtr("coder-1")
+		task.LeaseExpires = &leaseExpires
+		task.ReviewCommit = &reviewCommit
+		task.ApprovedBy = strPtr("code-reviewer-1")
+		task.MergeCommit = &mergeCommit
+		task.FailedBy = append(task.FailedBy, "coder-1")
+		state.Agents["coder-1"] = models.Agent{
+			Role:   "coder",
+			Status: models.AgentStatusIdle,
+			PID:    999999,
+		}
+	case models.TaskStatusApproved:
+		task.ReviewCommit = &reviewCommit
+		task.ApprovedBy = strPtr("code-reviewer-1")
+	case models.TaskStatusBlocked:
+		task.BlockedReason = &blockedReason
+		task.BlockedQuestions = []string{"What went wrong?"}
+	case models.TaskStatusRejected:
+		task.ReviewCommit = &reviewCommit
+		task.FailedBy = append(task.FailedBy, "code-reviewer-1")
+	}
+
+	state.Tasks = append(state.Tasks, task)
+	testhelpers.WriteInitialState(t, stateFile, state)
+	return tmpDir, stateFile
+}
+
+func TestRecoverTask_IntegrationFailed_ResetsToReady(t *testing.T) {
+	tmpDir, stateFile := setupTaskInStatus(t, "task-1", models.TaskStatusIntegrationFailed)
+
+	result, err := RecoverTask(tmpDir, "task-1", true, "integration recovery")
+	if err != nil {
+		t.Fatalf("RecoverTask() error: %v", err)
+	}
+	if !result.InState {
+		t.Error("Expected InState=true")
+	}
+
+	readState, _ := db.New(stateFile).Read()
+	task := readState.FindTask("task-1")
+	if task == nil {
+		t.Fatal("Task should still exist")
+	}
+	if task.Status != models.TaskStatusReady {
+		t.Errorf("Task status = %s, want READY", task.Status)
+	}
+	if task.ReviewCommit != nil {
+		t.Error("ReviewCommit should be nil after reset")
+	}
+	if task.ApprovedBy != nil {
+		t.Error("ApprovedBy should be nil after reset")
+	}
+	if task.MergeCommit != nil {
+		t.Error("MergeCommit should be nil after reset")
+	}
+	if len(task.FailedBy) != 0 {
+		t.Errorf("FailedBy should be empty, got %v", task.FailedBy)
+	}
+
+	// Should have status_reset history entry
+	found := false
+	for _, h := range task.History {
+		if h.Event == "status_reset" {
+			found = true
+			if h.Reason == nil || !strings.Contains(*h.Reason, "INTEGRATION_FAILED") {
+				t.Errorf("status_reset reason should mention INTEGRATION_FAILED, got %v", h.Reason)
+			}
+		}
+	}
+	if !found {
+		t.Error("Expected status_reset history entry")
+	}
+}
+
+func TestRecoverTask_Approved_ResetsToReady(t *testing.T) {
+	tmpDir, stateFile := setupTaskInStatus(t, "task-1", models.TaskStatusApproved)
+
+	result, err := RecoverTask(tmpDir, "task-1", true, "stale approval")
+	if err != nil {
+		t.Fatalf("RecoverTask() error: %v", err)
+	}
+	if !result.InState {
+		t.Error("Expected InState=true")
+	}
+
+	readState, _ := db.New(stateFile).Read()
+	task := readState.FindTask("task-1")
+	if task.Status != models.TaskStatusReady {
+		t.Errorf("Task status = %s, want READY", task.Status)
+	}
+	if task.ApprovedBy != nil {
+		t.Error("ApprovedBy should be nil after reset")
+	}
+}
+
+func TestRecoverTask_Blocked_ResetsToReady(t *testing.T) {
+	tmpDir, stateFile := setupTaskInStatus(t, "task-1", models.TaskStatusBlocked)
+
+	_, err := RecoverTask(tmpDir, "task-1", true, "unblocked")
+	if err != nil {
+		t.Fatalf("RecoverTask() error: %v", err)
+	}
+
+	readState, _ := db.New(stateFile).Read()
+	task := readState.FindTask("task-1")
+	if task.Status != models.TaskStatusReady {
+		t.Errorf("Task status = %s, want READY", task.Status)
+	}
+	if task.BlockedReason != nil {
+		t.Error("BlockedReason should be nil after reset")
+	}
+	if len(task.BlockedQuestions) != 0 {
+		t.Error("BlockedQuestions should be empty after reset")
+	}
+}
+
+func TestRecoverTask_Rejected_ResetsToReady(t *testing.T) {
+	tmpDir, stateFile := setupTaskInStatus(t, "task-1", models.TaskStatusRejected)
+
+	_, err := RecoverTask(tmpDir, "task-1", true, "retry")
+	if err != nil {
+		t.Fatalf("RecoverTask() error: %v", err)
+	}
+
+	readState, _ := db.New(stateFile).Read()
+	task := readState.FindTask("task-1")
+	if task.Status != models.TaskStatusReady {
+		t.Errorf("Task status = %s, want READY", task.Status)
+	}
+}
+
+func TestRecoverTask_Ready_StaysReady(t *testing.T) {
+	// READY is not a stuck status — should not be modified
+	tmpDir, stateFile := setupTaskInStatus(t, "task-1", models.TaskStatusReady)
+
+	_, err := RecoverTask(tmpDir, "task-1", true, "cleanup")
+	if err != nil {
+		t.Fatalf("RecoverTask() error: %v", err)
+	}
+
+	readState, _ := db.New(stateFile).Read()
+	task := readState.FindTask("task-1")
+	if task.Status != models.TaskStatusReady {
+		t.Errorf("Task status = %s, want READY", task.Status)
+	}
+}

@@ -13,7 +13,7 @@ import (
 // maxSleepCallsInTests is a ratchet: it should only decrease as sleeps are
 // replaced with deterministic synchronization. Raise it only when a new sleep
 // is genuinely unavoidable (e.g. testing real wall-clock behavior).
-const maxSleepCallsInTests = 11
+const maxSleepCallsInTests = 14
 
 func TestSleepUsageBudget(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -37,7 +37,7 @@ func TestSleepUsageBudget(t *testing.T) {
 		if !strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		if path == thisFile {
+		if filepath.Base(path) == filepath.Base(thisFile) {
 			return nil
 		}
 

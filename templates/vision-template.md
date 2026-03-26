@@ -31,6 +31,20 @@ How do we know we succeeded?
 
 What could go wrong? What are we assuming?
 
+## Verification Strategy (optional)
+
+> Define project-level verification commands that apply to all tasks.
+> These are used as `verify_commands` on tasks and run automatically during merge.
+
+```yaml
+# Example:
+verify_commands:
+  - "go test ./..."
+  - "go vet ./..."
+```
+
 ---
 
-**Rule:** Orchestrator cannot decompose goal without vision document. Missing vision → BLOCKED at planning stage.
+**Rules:**
+- Planner cannot decompose goal without vision document. Missing vision → BLOCKED at planning stage.
+- Tasks created from this vision must cite requirement IDs from the delivery spec (when `enforce_requirement_refs` is enabled).

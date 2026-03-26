@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -137,6 +138,12 @@ func TestCreateTestWorktree(t *testing.T) {
 	gitFile := filepath.Join(wtDir, ".git")
 	if _, err := os.Stat(gitFile); os.IsNotExist(err) {
 		t.Error(".git link file does not exist in worktree")
+	}
+
+	// Verify permissions (0755) — Windows reports 0777
+	mode := info.Mode().Perm()
+	if runtime.GOOS != "windows" && mode != 0755 {
+		t.Errorf("Expected permissions 0755, got %o", mode)
 	}
 }
 

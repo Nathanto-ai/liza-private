@@ -114,13 +114,31 @@ type ResolvedTimeouts struct {
 	MaxWait      time.Duration
 }
 
+// legacyRoleAliases maps legacy runtime role names to pipeline role names.
+var legacyRoleAliases = map[string]string{
+	"planner": "orchestrator",
+}
+
+// resolveRoleName resolves a role name, trying legacy aliases if direct lookup fails.
+func (r *Resolver) resolveRoleName(name string) (string, bool) {
+	if _, ok := r.config.Pipeline.Roles[name]; ok {
+		return name, true
+	}
+	if alias, ok := legacyRoleAliases[name]; ok {
+		if _, ok := r.config.Pipeline.Roles[alias]; ok {
+			return alias, true
+		}
+	}
+	return name, false
+}
+
 // RoleType returns the type (doer, reviewer, orchestrator) for the named role.
 func (r *Resolver) RoleType(name string) (string, error) {
-	role, ok := r.config.Pipeline.Roles[name]
+	resolved, ok := r.resolveRoleName(name)
 	if !ok {
 		return "", fmt.Errorf("unknown role %q", name)
 	}
-	return role.Type, nil
+	return r.config.Pipeline.Roles[resolved].Type, nil
 }
 
 // DoerRoleNames returns the sorted names of all roles with type "doer".
@@ -145,19 +163,20 @@ func (r *Resolver) AllRoleNames() []string {
 
 // AllowedOperations returns the allowed-operations list for the named role.
 func (r *Resolver) AllowedOperations(name string) ([]string, error) {
-	role, ok := r.config.Pipeline.Roles[name]
+	resolved, ok := r.resolveRoleName(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown role %q", name)
 	}
-	return role.AllowedOperations, nil
+	return r.config.Pipeline.Roles[resolved].AllowedOperations, nil
 }
 
 // RoleTimeouts returns the parsed timeout durations for the named role.
 func (r *Resolver) RoleTimeouts(name string) (*ResolvedTimeouts, error) {
-	role, ok := r.config.Pipeline.Roles[name]
+	resolved, ok := r.resolveRoleName(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown role %q", name)
 	}
+	role := r.config.Pipeline.Roles[resolved]
 	if role.Timeouts == nil {
 		return nil, fmt.Errorf("role %q has no timeouts defined", name)
 	}
@@ -184,10 +203,11 @@ func (r *Resolver) RoleTimeouts(name string) (*ResolvedTimeouts, error) {
 // Orchestrator roles always return 1 regardless of YAML value (spec invariant).
 // Returns 0 (unlimited) if the field is unset for non-orchestrator roles.
 func (r *Resolver) MaxInstances(name string) (int, error) {
-	role, ok := r.config.Pipeline.Roles[name]
+	resolved, ok := r.resolveRoleName(name)
 	if !ok {
 		return 0, fmt.Errorf("unknown role %q", name)
 	}
+	role := r.config.Pipeline.Roles[resolved]
 	if role.Type == "orchestrator" {
 		return 1, nil
 	}
@@ -197,11 +217,11 @@ func (r *Resolver) MaxInstances(name string) (int, error) {
 // RoleDisplayName returns the display-name for the named role.
 // Returns the role key itself if the role is not found or has no display-name.
 func (r *Resolver) RoleDisplayName(name string) string {
-	role, ok := r.config.Pipeline.Roles[name]
-	if !ok || role.DisplayName == "" {
+	resolved, ok := r.resolveRoleName(name)
+	if !ok || r.config.Pipeline.Roles[resolved].DisplayName == "" {
 		return name
 	}
-	return role.DisplayName
+	return r.config.Pipeline.Roles[resolved].DisplayName
 }
 
 // roleNamesByType returns the sorted names of all roles matching the given type.
@@ -218,29 +238,29 @@ func (r *Resolver) roleNamesByType(roleType string) []string {
 
 // ContextSections returns the context-sections list for the named role.
 func (r *Resolver) ContextSections(name string) ([]string, error) {
-	role, ok := r.config.Pipeline.Roles[name]
+	resolved, ok := r.resolveRoleName(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown role %q", name)
 	}
-	return role.ContextSections, nil
+	return r.config.Pipeline.Roles[resolved].ContextSections, nil
 }
 
 // Skills returns the skills list for the named role.
 func (r *Resolver) Skills(name string) ([]string, error) {
-	role, ok := r.config.Pipeline.Roles[name]
+	resolved, ok := r.resolveRoleName(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown role %q", name)
 	}
-	return role.Skills, nil
+	return r.config.Pipeline.Roles[resolved].Skills, nil
 }
 
 // MandatoryDocs returns the mandatory-docs list for the named role.
 func (r *Resolver) MandatoryDocs(name string) ([]string, error) {
-	role, ok := r.config.Pipeline.Roles[name]
+	resolved, ok := r.resolveRoleName(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown role %q", name)
 	}
-	return role.MandatoryDocs, nil
+	return r.config.Pipeline.Roles[resolved].MandatoryDocs, nil
 }
 
 // ReviewPolicy returns the review-policy for the named role-pair.

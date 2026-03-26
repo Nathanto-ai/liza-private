@@ -147,6 +147,12 @@ func TestBuildPrompt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			testhelpers.SetupPipelineConfig(t, tmpDir)
+
+			// Create the spec file on disk so planner validation can read it
+			if err := os.WriteFile(filepath.Join(tmpDir, "spec.md"), []byte(testhelpers.ValidVisionSpec), 0644); err != nil {
+				t.Fatal(err)
+			}
+
 			config := SupervisorConfig{
 				Role:        tt.role,
 				AgentID:     tt.role + "-1",

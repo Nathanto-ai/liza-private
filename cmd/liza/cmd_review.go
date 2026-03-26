@@ -33,6 +33,9 @@ Updates:
 		if err != nil {
 			return err
 		}
+		if err := commands.RequireRole(agentID, commands.MutationRoles["submit-for-review"]...); err != nil {
+			return err
+		}
 
 		projectRoot, err := requireProjectRoot()
 		if err != nil {
@@ -66,6 +69,9 @@ Updates:
 
 		agentID, err := requireAgentID(cmd)
 		if err != nil {
+			return err
+		}
+		if err := commands.RequireRole(agentID, commands.MutationRoles["handoff"]...); err != nil {
 			return err
 		}
 
@@ -119,6 +125,9 @@ For REJECTED verdict:
 
 		agentID, err := requireAgentID(cmd)
 		if err != nil {
+			return err
+		}
+		if err := commands.RequireRole(agentID, commands.MutationRoles["submit-verdict"]...); err != nil {
 			return err
 		}
 

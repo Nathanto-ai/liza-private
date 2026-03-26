@@ -39,7 +39,7 @@ func ComputeSprintMetrics(state *models.State) models.SprintMetrics {
 	approvedOrMerged := 0
 
 	for _, task := range state.Tasks {
-		if task.Status.IsTerminal() {
+		if task.Status.IsComplete() {
 			metrics.TasksDone++
 		}
 

@@ -3,6 +3,7 @@ package ops
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -178,6 +179,10 @@ func TestTransitionToNewAttempt_Attempt0DefaultsTo1(t *testing.T) {
 }
 
 func TestTransitionToNewAttempt_WorktreeDeletionFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix directory permission bits via os.Chmod")
+	}
+
 	tmpDir, statePath := setupTransitionTest(t)
 
 	// Create a real worktree so Phase 2 has something to delete.

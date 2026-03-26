@@ -50,10 +50,13 @@ func validateIdentity(agentID, role string) error {
 // provider identifies the CLI provider (e.g. "claude", "codex") and is persisted
 // for review quorum provider-diversity checks.
 // resolver is used for role classification (singularity, reviewer detection).
+// If an existing agent has a valid lease but its process is dead, the
+// registration auto-recovers (releases claims, deletes old entry).
 func registerAgent(bb *db.Blackboard, projectRoot, agentID, role, terminal string, leaseDuration int, provider string, resolver *pipeline.Resolver) error {
 	logger := GetLogger()
 	now := time.Now().UTC()
 	leaseExpires := now.Add(time.Duration(leaseDuration) * time.Second)
+	pipelineTransitions, releaseResolver := loadPipelineForRelease(projectRoot)
 
 	// Single atomic registration - skip STARTING state, go directly to IDLE
 	err := bb.Modify(func(state *models.State) error {
@@ -61,9 +64,28 @@ func registerAgent(bb *db.Blackboard, projectRoot, agentID, role, terminal strin
 		if existing, exists := state.Agents[agentID]; exists {
 			// Check if lease is still valid
 			if existing.LeaseExpires != nil && existing.LeaseExpires.After(now) {
-				return &errors.AgentCollisionError{AgentID: agentID}
+				// Lease valid — check if the process is actually alive
+				if existing.PID > 0 && !ops.IsProcessAlive(existing.PID) {
+					// Process is dead but lease hasn't expired.
+					// Auto-recover: release task claims and delete stale entry.
+					logger.Info("Auto-recovering dead agent with valid lease",
+						"agent_id", agentID,
+						"dead_pid", existing.PID,
+						"lease_expires", existing.LeaseExpires.Format(time.RFC3339))
+					if existing.CurrentTask != nil {
+						taskID := *existing.CurrentTask
+						if task := state.FindTask(taskID); task != nil {
+							releaseTaskClaim(state, task, existing.Role, agentID, pipelineTransitions, releaseResolver, now)
+						}
+					}
+					delete(state.Agents, agentID)
+					// Fall through to register the new agent below
+				} else {
+					return &errors.AgentCollisionError{AgentID: agentID}
+				}
+			} else {
+				logger.Info("Taking over expired agent lease", "agent_id", agentID)
 			}
-			logger.Info("Taking over expired agent lease", "agent_id", agentID)
 		}
 
 		// Singularity check via resolver: at most N instances per role.
@@ -166,33 +188,50 @@ func AutoAssignAgentID(bb *db.Blackboard, role string, maxRetries int, tryFn fun
 // unregisterAgent releases any task claim held by the agent, then removes
 // the agent from state. Both operations happen in a single atomic modify
 // so that an interrupt between them cannot leave a stuck task.
-func unregisterAgent(bb *db.Blackboard, agentID, projectRoot string) {
+// Retries up to 3 times on transient errors (e.g., Windows sharing violations).
+func unregisterAgent(bb *db.Blackboard, agentID string, projectRoot ...string) {
 	logger := GetLogger()
-	now := time.Now().UTC()
 
 	// Load pipeline config outside the lock to avoid disk I/O under bb.Modify
-	pipelineTransitions, resolver := loadPipelineForRelease(projectRoot)
+	var pipelineTransitions map[models.TaskStatus][]models.TaskStatus
+	var resolver *pipeline.Resolver
+	if len(projectRoot) > 0 && projectRoot[0] != "" {
+		pipelineTransitions, resolver = loadPipelineForRelease(projectRoot[0])
+	}
 
-	err := bb.Modify(func(state *models.State) error {
-		agent, exists := state.Agents[agentID]
-		if !exists {
-			return nil
-		}
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		now := time.Now().UTC()
 
-		// Release task claim if agent held one
-		if agent.CurrentTask != nil {
-			taskID := *agent.CurrentTask
-			if task := state.FindTask(taskID); task != nil {
-				releaseTaskClaim(state, task, agent.Role, agentID, pipelineTransitions, resolver, now)
+		err := bb.Modify(func(state *models.State) error {
+			agent, exists := state.Agents[agentID]
+			if !exists {
+				return nil
 			}
+
+			// Release task claim if agent held one
+			if agent.CurrentTask != nil {
+				taskID := *agent.CurrentTask
+				if task := state.FindTask(taskID); task != nil {
+					releaseTaskClaim(state, task, agent.Role, agentID, pipelineTransitions, resolver, now)
+				}
+			}
+
+			delete(state.Agents, agentID)
+			return nil
+		})
+
+		if err == nil {
+			return
 		}
 
-		delete(state.Agents, agentID)
-		return nil
-	})
+		logger.Warn("Failed to unregister agent",
+			"error", err, "agent_id", agentID,
+			"attempt", attempt, "max_attempts", maxAttempts)
 
-	if err != nil {
-		logger.Warn("Failed to unregister agent", "error", err, "agent_id", agentID)
+		if attempt < maxAttempts {
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+		}
 	}
 }
 
@@ -230,9 +269,12 @@ func releaseTaskClaim(state *models.State, task *models.Task, role, agentID stri
 	case "doer":
 		if task.Status == activeExecuting {
 			transitionTask(releasedInitial)
+			task.AssignedTo = nil
+			task.LeaseExpires = nil
+		} else {
+			// Task already submitted — don't clear AssignedTo
+			task.LeaseExpires = nil
 		}
-		task.AssignedTo = nil
-		task.LeaseExpires = nil
 
 	case "reviewer":
 		if task.Status == activeReviewing {

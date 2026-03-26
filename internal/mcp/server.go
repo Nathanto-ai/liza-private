@@ -6,36 +6,41 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/liza-mas/liza/internal/db"
 	"github.com/liza-mas/liza/internal/mcp/protocol"
 	"github.com/liza-mas/liza/internal/paths"
 	"github.com/liza-mas/liza/internal/pipeline"
+	"github.com/liza-mas/liza/internal/roles"
 )
 
-// Server represents the MCP server
+// Server represents the MCP server.
 type Server struct {
 	projectRoot     string
 	logPath         string
+	role            string
 	logger          *slog.Logger
 	bb              *db.Blackboard
 	resolver        *pipeline.Resolver
-	pipelineLoadErr error // non-nil when pipeline config failed to load
+	pipelineLoadErr error
 	tools           map[string]protocol.Tool
 	resources       map[string]protocol.Resource
 	handlers        map[string]ToolHandler
 }
 
 // NewServer creates a new MCP server.
-// It loads the pipeline config from the project's .liza/pipeline.yaml to
-// derive per-role allowed-operations for MCP handler authorization.
-func NewServer(projectRoot, logPath string) *Server {
+func NewServer(projectRoot, logPath string, role ...string) *Server {
+	selectedRole := ""
+	if len(role) > 0 {
+		selectedRole = role[0]
+	}
+
 	cfg, err := pipeline.LoadFrozen(projectRoot)
 	if err != nil {
-		// Log and continue with nil resolver — tools guarded by operationChecker
-		// will fail closed (reject all operations) when resolver is nil.
 		slog.Error("mcp: failed to load pipeline config for operation authorization", "error", err)
 	}
+
 	var resolver *pipeline.Resolver
 	if cfg != nil {
 		resolver = pipeline.NewResolver(cfg)
@@ -44,6 +49,7 @@ func NewServer(projectRoot, logPath string) *Server {
 	s := &Server{
 		projectRoot:     projectRoot,
 		logPath:         logPath,
+		role:            selectedRole,
 		logger:          slog.New(slog.NewTextHandler(os.Stderr, nil)),
 		bb:              db.For(paths.New(projectRoot).StatePath()),
 		resolver:        resolver,
@@ -55,13 +61,18 @@ func NewServer(projectRoot, logPath string) *Server {
 
 	s.registerReadOnlyTools()
 	s.registerReadOnlyResources()
-	s.registerMutationTools()
-	s.registerComplexOperations()
+
+	if selectedRole == "" {
+		s.registerMutationTools()
+		s.registerComplexOperations()
+	} else {
+		s.registerToolsForRole(selectedRole)
+	}
 
 	return s
 }
 
-// GetCapabilities returns the server capabilities
+// GetCapabilities returns the server capabilities.
 func (s *Server) GetCapabilities() map[string]any {
 	return map[string]any{
 		"tools": map[string]any{
@@ -74,7 +85,7 @@ func (s *Server) GetCapabilities() map[string]any {
 	}
 }
 
-// ListTools returns all registered tools
+// ListTools returns all registered tools.
 func (s *Server) ListTools() []protocol.Tool {
 	tools := make([]protocol.Tool, 0, len(s.tools))
 	for _, tool := range s.tools {
@@ -83,19 +94,19 @@ func (s *Server) ListTools() []protocol.Tool {
 	return tools
 }
 
-// GetTool returns a specific tool by name
+// GetTool returns a specific tool by name.
 func (s *Server) GetTool(name string) (protocol.Tool, bool) {
 	tool, ok := s.tools[name]
 	return tool, ok
 }
 
-// GetHandler returns a specific handler by tool name
+// GetHandler returns a specific handler by tool name.
 func (s *Server) GetHandler(name string) (ToolHandler, bool) {
 	handler, ok := s.handlers[name]
 	return handler, ok
 }
 
-// ToolNames returns all registered tool names
+// ToolNames returns all registered tool names.
 func (s *Server) ToolNames() []string {
 	names := make([]string, 0, len(s.tools))
 	for name := range s.tools {
@@ -104,7 +115,7 @@ func (s *Server) ToolNames() []string {
 	return names
 }
 
-// ListResources returns all registered resources
+// ListResources returns all registered resources.
 func (s *Server) ListResources() []protocol.Resource {
 	resources := make([]protocol.Resource, 0, len(s.resources))
 	for _, resource := range s.resources {
@@ -113,7 +124,13 @@ func (s *Server) ListResources() []protocol.Resource {
 	return resources
 }
 
-// Run starts the MCP server with stdio transport
+// recordMCPActivity writes the current timestamp to the MCP activity file.
+func (s *Server) recordMCPActivity() {
+	activityPath := paths.New(s.projectRoot).MCPActivityPath()
+	_ = os.WriteFile(activityPath, []byte(time.Now().UTC().Format(time.RFC3339)), 0644)
+}
+
+// Run starts the MCP server with stdio transport.
 func (s *Server) Run() error {
 	return s.runWithTransport(protocol.NewStdioTransport())
 }
@@ -122,11 +139,10 @@ func (s *Server) runWithTransport(transport runTransport) error {
 	for {
 		req, err := transport.ReadRequest()
 		if err != nil {
-			// EOF means client disconnected, exit gracefully
 			if errors.Is(err, io.EOF) || err.Error() == "EOF" {
 				return nil
 			}
-			// Use appropriate error code: RequestTooLarge for size violations, ParseError for others
+
 			errorCode := protocol.ParseError
 			if errors.Is(err, protocol.ErrRequestTooLarge) {
 				errorCode = protocol.RequestTooLarge
@@ -137,8 +153,6 @@ func (s *Server) runWithTransport(transport runTransport) error {
 			continue
 		}
 
-		// JSON-RPC 2.0: requests without an "id" field are notifications.
-		// The server MUST NOT reply to notifications.
 		if req.ID == nil {
 			s.handleNotification(req)
 			continue
@@ -148,5 +162,77 @@ func (s *Server) runWithTransport(transport runTransport) error {
 		if err := transport.WriteResponse(resp); err != nil {
 			return fmt.Errorf("failed to write response: %w", err)
 		}
+	}
+}
+
+// registerToolsForRole selectively registers only the mutation and complex
+// operation tools that the given agent role is allowed to use.
+func (s *Server) registerToolsForRole(role string) {
+	full := &Server{
+		projectRoot: s.projectRoot,
+		logPath:     s.logPath,
+		bb:          s.bb,
+		logger:      s.logger,
+		tools:       make(map[string]protocol.Tool),
+		resources:   make(map[string]protocol.Resource),
+		handlers:    make(map[string]ToolHandler),
+	}
+	full.registerMutationTools()
+	full.registerComplexOperations()
+
+	allowed := roleAllowedTools(role)
+	for name := range allowed {
+		if tool, ok := full.tools[name]; ok {
+			s.tools[name] = tool
+			s.handlers[name] = full.handlers[name]
+		}
+	}
+}
+
+// roleAllowedTools returns the set of mutation and complex tool names allowed
+// for the given runtime role.
+func roleAllowedTools(role string) map[string]bool {
+	switch role {
+	case roles.RuntimePlanner:
+		return map[string]bool{
+			"liza_add_task":              true,
+			"liza_supersede_task":        true,
+			"liza_update_sprint_metrics": true,
+			"liza_sprint_checkpoint":     true,
+			"liza_delete_agent":          true,
+			"liza_analyze":               true,
+		}
+	case roles.RuntimeCoder:
+		return map[string]bool{
+			"liza_claim_task":        true,
+			"liza_submit_for_review": true,
+			"liza_handoff":           true,
+			"liza_mark_blocked":      true,
+			"liza_release_claim":     true,
+			"liza_wt_create":         true,
+			"liza_wt_delete":         true,
+			"liza_write_checkpoint":  true,
+			"liza_exec":              true,
+		}
+	case roles.RuntimeCodeReviewer:
+		return map[string]bool{
+			"liza_submit_verdict":            true,
+			"liza_wt_merge":                  true,
+			"liza_clear_stale_review_claims": true,
+			"liza_release_claim":             true,
+			"liza_mark_blocked":              true,
+			"liza_wt_create":                 true,
+			"liza_wt_delete":                 true,
+			"liza_exec":                      true,
+		}
+	case roles.RuntimeAuditor:
+		return map[string]bool{
+			"liza_submit_audit_finding": true,
+			"liza_analyze":              true,
+			"liza_mark_blocked":         true,
+			"liza_exec":                 true,
+		}
+	default:
+		return map[string]bool{}
 	}
 }

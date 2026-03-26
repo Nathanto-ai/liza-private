@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -449,7 +450,9 @@ func TestBlackboardLockTimeout(t *testing.T) {
 	if err == nil {
 		t.Error("Expected timeout error, got nil")
 	}
-	if elapsed < 900*time.Millisecond || elapsed > 1200*time.Millisecond {
+	// On Windows the lock polling interval is 300ms (vs 100ms on Linux),
+	// so the actual timeout can overshoot by up to one polling interval.
+	if elapsed < 900*time.Millisecond || elapsed > 1500*time.Millisecond {
 		t.Errorf("Timeout duration unexpected: %v (expected ~1s)", elapsed)
 	}
 	close(releaseLock)
@@ -779,6 +782,9 @@ func TestBlackboardConcurrentModifications(t *testing.T) {
 
 // TestBlackboardWriteReadOnlyDir tests Write error when directory is read-only
 func TestBlackboardWriteReadOnlyDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix directory permission bits via os.Chmod")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("Skipping test when running as root")
 	}
@@ -1079,7 +1085,7 @@ func TestBlackboardWriteWithFsync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State file not found: %v", err)
 	}
-	if info.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0644 {
 		t.Errorf("State file has wrong permissions: got %o, want 0644", info.Mode().Perm())
 	}
 
@@ -1146,6 +1152,9 @@ func TestBlackboardModifyWithFsync(t *testing.T) {
 
 // TestBlackboardAtomicWriteOnError tests cleanup when write fails
 func TestBlackboardAtomicWriteOnError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix directory permission bits via os.Chmod")
+	}
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.yaml")
 

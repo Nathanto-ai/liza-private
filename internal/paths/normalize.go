@@ -58,6 +58,10 @@ func isAbsAnyPlatform(path string) bool {
 	if filepath.IsAbs(path) {
 		return true
 	}
+	// Unix absolute path: filepath.IsAbs("/path") is false on Windows.
+	if len(path) > 0 && path[0] == '/' {
+		return true
+	}
 	// Windows drive letter: letter + colon (e.g. "C:\", "C:/", "C:file")
 	if len(path) >= 2 && path[1] == ':' {
 		c := path[0]

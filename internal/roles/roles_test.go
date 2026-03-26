@@ -144,3 +144,81 @@ func TestAllRolesAreHyphenated(t *testing.T) {
 		}
 	}
 }
+
+func TestAllRuntime(t *testing.T) {
+	t.Parallel()
+
+	got := AllRuntime()
+	want := []string{RuntimeCoder, RuntimeCodeReviewer, RuntimePlanner, RuntimeAuditor}
+
+	if len(got) != len(want) {
+		t.Errorf("AllRuntime() returned %d roles, want %d", len(got), len(want))
+	}
+
+	for _, role := range want {
+		if !slices.Contains(got, role) {
+			t.Errorf("AllRuntime() missing role %q", role)
+		}
+	}
+}
+
+func TestAllWorkflow(t *testing.T) {
+	t.Parallel()
+
+	got := AllWorkflow()
+	want := []string{WorkflowCoder, WorkflowCodeReviewer, WorkflowPlanner, WorkflowAuditor}
+
+	if len(got) != len(want) {
+		t.Errorf("AllWorkflow() returned %d roles, want %d", len(got), len(want))
+	}
+
+	for _, role := range want {
+		if !slices.Contains(got, role) {
+			t.Errorf("AllWorkflow() missing role %q", role)
+		}
+	}
+}
+
+// TestBidirectionalMapping ensures all valid runtime roles map to workflow and back.
+func TestBidirectionalMapping(t *testing.T) {
+	t.Parallel()
+
+	for _, runtime := range AllRuntime() {
+		workflow, err := ToWorkflow(runtime)
+		if err != nil {
+			t.Errorf("ToWorkflow(%q) failed: %v", runtime, err)
+			continue
+		}
+
+		backToRuntime, err := ToRuntime(workflow)
+		if err != nil {
+			t.Errorf("ToRuntime(%q) failed: %v", workflow, err)
+			continue
+		}
+
+		if backToRuntime != runtime {
+			t.Errorf("Round-trip failed: %q -> %q -> %q", runtime, workflow, backToRuntime)
+		}
+	}
+}
+
+// TestCrossBoundaryResolution verifies the core requirement:
+// agent runtime roles can be resolved to workflow roles for task operations.
+func TestCrossBoundaryResolution(t *testing.T) {
+	t.Parallel()
+
+	// Simulate: agent with ID "code-reviewer-1" claims a task
+	// The agent uses runtime role "code-reviewer"
+	// The task workflow uses "code_reviewer"
+
+	agentRuntimeRole := RuntimeCodeReviewer
+	workflowRole, err := ToWorkflow(agentRuntimeRole)
+	if err != nil {
+		t.Fatalf("Failed to resolve runtime role to workflow: %v", err)
+	}
+
+	// Verify it matches the models constant
+	if workflowRole != WorkflowCodeReviewer {
+		t.Errorf("Workflow role mismatch: got %q, want %q", workflowRole, WorkflowCodeReviewer)
+	}
+}

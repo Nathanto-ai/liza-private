@@ -207,3 +207,42 @@ func (g *Git) ValidateWorktreeHealth(taskID string) error {
 
 	return nil
 }
+
+// MergeIntoBranch merges the task branch into a target branch.
+// Returns (hadConflicts bool, mergeCommit string, err error)
+func (g *Git) MergeIntoBranch(taskID, targetBranch string) (bool, string, error) {
+	branchName := paths.TaskBranchPrefix + taskID
+
+	// Merge the task branch
+	_, err := g.exec("merge", "--no-ff", "-m", fmt.Sprintf("Merge %s into %s", branchName, targetBranch), branchName)
+	if err != nil {
+		// Check if it's a merge conflict
+		errStr := err.Error()
+		if strings.Contains(errStr, "CONFLICT") || strings.Contains(errStr, "Automatic merge failed") {
+			return true, "", nil
+		}
+		return false, "", fmt.Errorf("merge failed: %w", err)
+	}
+
+	// Get the merge commit
+	commit, err := g.GetCommitSHA("HEAD")
+	return false, commit, err
+}
+
+// AbortMerge aborts an in-progress merge
+// ResetHardInWorktree resets a worktree branch to the given ref, discarding all changes.
+func (g *Git) ResetHardInWorktree(wtPath string, ref string) error {
+	_, err := g.execInDir(wtPath, "reset", "--hard", ref)
+	return err
+}
+
+// CherryPick applies a single commit onto the current branch in a worktree.
+func (g *Git) CherryPick(wtPath string, commitSHA string) error {
+	_, err := g.execInDir(wtPath, "cherry-pick", commitSHA)
+	if err != nil {
+		return fmt.Errorf("cherry-pick %s failed: %w", commitSHA, err)
+	}
+	return nil
+}
+
+

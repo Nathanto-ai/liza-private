@@ -36,6 +36,22 @@ func claimDoerTask(projectRoot, agentID, role string, bb *db.Blackboard) (taskID
 
 	pr := loadResolver(projectRoot)
 
+	// Check for tasks already IMPLEMENTING and assigned to this agent.
+	// This handles re-invocation when the CLI exited without completing.
+	for i := range state.Tasks {
+		task := &state.Tasks[i]
+		if task.Status == models.TaskStatusImplementing &&
+			task.AssignedTo != nil &&
+			*task.AssignedTo == agentID {
+			wt := ""
+			if task.Worktree != nil {
+				wt = *task.Worktree
+			}
+			logger.Info("Re-claiming own in-progress task", "task_id", task.ID, "agent_id", agentID)
+			return task.ID, wt, nil
+		}
+	}
+
 	var candidates []*models.Task
 	for i := range state.Tasks {
 		if state.Tasks[i].IsClaimable(role, state.Tasks, pr) {
@@ -82,6 +98,31 @@ func shuffledByPriorityTier(candidates []*models.Task) []*models.Task {
 
 func claimReviewerTaskForRole(projectRoot, agentID, role string, leaseDuration int, bb *db.Blackboard) (taskID, worktree, reviewCommit string, err error) {
 	logger := GetLogger()
+
+	// Fix 42: Check for tasks already REVIEWING and assigned to this reviewer.
+	// This handles re-invocation when the CLI session exited without submitting a verdict.
+	state, err := bb.Read()
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to read state: %w", err)
+	}
+	for i := range state.Tasks {
+		task := &state.Tasks[i]
+		if task.Status == models.TaskStatusReviewing &&
+			task.ReviewingBy != nil &&
+			*task.ReviewingBy == agentID {
+			wt := ""
+			if task.Worktree != nil {
+				wt = *task.Worktree
+			}
+			rc := ""
+			if task.ReviewCommit != nil {
+				rc = *task.ReviewCommit
+			}
+			logger.Info("Re-claiming own in-review task (session ended without verdict)",
+				"task_id", task.ID, "agent_id", agentID)
+			return task.ID, wt, rc, nil
+		}
+	}
 
 	result, err := ops.ClaimReviewerTask(ops.ClaimReviewerTaskInput{
 		ProjectRoot:   projectRoot,
@@ -284,8 +325,7 @@ func hasPendingMerges(bb *db.Blackboard, agentID string, pr models.PipelineResol
 	for i := range state.Tasks {
 		task := &state.Tasks[i]
 		if models.IsApprovedForMerge(task, pr) &&
-			task.LastApprover() == agentID &&
-			task.MergeCommit == nil {
+			task.LastApprover() == agentID {
 			return true
 		}
 	}
@@ -337,8 +377,24 @@ func logTaskSubmissionIfCompleted(bb *db.Blackboard, taskID, agentID string, pr 
 		if models.IsExecutingStatus(task, pr) {
 			GetLogger().Warn("Agent exited with task still claimed",
 				"task_id", task.ID,
-				"agent_id", agentID,
-				"hint", "Agent may have been interrupted or encountered an issue")
+				"agent_id", agentID)
+
+			releaseErr := bb.Modify(func(s *models.State) error {
+				t := s.FindTask(taskID)
+				if t == nil || t.Status != models.TaskStatusImplementing {
+					return nil // task gone or status changed, nothing to do
+				}
+				if err := t.Transition(models.TaskStatusReady); err != nil {
+					return err
+				}
+				t.AssignedTo = nil
+				t.LeaseExpires = nil
+				return nil
+			})
+			if releaseErr != nil {
+				GetLogger().Warn("Failed to release stale coding claim on exit",
+					"task_id", task.ID, "error", releaseErr)
+			}
 			return nil
 		}
 

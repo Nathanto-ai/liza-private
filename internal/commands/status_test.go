@@ -181,7 +181,8 @@ func TestBuildStatusData(t *testing.T) {
 				}
 				return state
 			}(),
-			detailed: false,
+			detailed:    false,
+			projectRoot: pipelineRoot,
 			validate: func(t *testing.T, data statusData) {
 				if data.OrchestratorState.Trigger != "SPRINT_COMPLETE" {
 					t.Errorf("expected SPRINT_COMPLETE trigger, got %s", data.OrchestratorState.Trigger)

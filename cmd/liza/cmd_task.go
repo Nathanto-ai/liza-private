@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/liza-mas/liza/internal/commands"
+	"github.com/liza-mas/liza/internal/ops"
 	"github.com/liza-mas/liza/internal/paths"
 	"github.com/spf13/cobra"
 )
@@ -30,6 +31,10 @@ This pattern prevents TOCTOU races in multi-agent scenarios.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		taskID := args[0]
 		agentID := args[1]
+
+		if err := commands.RequireRole(agentID, commands.MutationRoles["claim-task"]...); err != nil {
+			return err
+		}
 
 		projectRoot, err := requireProjectRoot()
 		if err != nil {
@@ -120,6 +125,30 @@ Example YAML file format:
 		if cmd.Flags().Changed("type") {
 			input.Type, _ = cmd.Flags().GetString("type")
 		}
+		if cmd.Flags().Changed("acceptance-criteria") {
+			acStr, _ := cmd.Flags().GetString("acceptance-criteria")
+			if acStr != "" {
+				input.AcceptanceCriteria = strings.Split(acStr, ",")
+			}
+		}
+		if cmd.Flags().Changed("verify-commands") {
+			vcStr, _ := cmd.Flags().GetString("verify-commands")
+			if vcStr != "" {
+				input.VerifyCommands = strings.Split(vcStr, ",")
+			}
+		}
+		if cmd.Flags().Changed("requirement-refs") {
+			rrStr, _ := cmd.Flags().GetString("requirement-refs")
+			if rrStr != "" {
+				input.RequirementRefs = strings.Split(rrStr, ",")
+			}
+		}
+		if cmd.Flags().Changed("error-behavior") {
+			input.ErrorBehavior, _ = cmd.Flags().GetString("error-behavior")
+		}
+		if cmd.Flags().Changed("origin-finding-id") {
+			input.OriginFindingID, _ = cmd.Flags().GetString("origin-finding-id")
+		}
 
 		if input.Priority == 0 {
 			input.Priority = 1
@@ -127,6 +156,9 @@ Example YAML file format:
 
 		orchestratorID, err := resolveOrchestratorID(cmd)
 		if err != nil {
+			return err
+		}
+		if err := commands.RequireRole(orchestratorID, commands.MutationRoles["add-task"]...); err != nil {
 			return err
 		}
 
@@ -163,6 +195,9 @@ Example:
 
 		agentID, err := resolveOrchestratorID(cmd)
 		if err != nil {
+			return err
+		}
+		if err := commands.RequireRole(agentID, commands.MutationRoles["supersede-task"]...); err != nil {
 			return err
 		}
 
@@ -208,6 +243,9 @@ Effects:
 
 		agentID, err := requireAgentID(cmd)
 		if err != nil {
+			return err
+		}
+		if err := commands.RequireRole(agentID, commands.MutationRoles["mark-blocked"]...); err != nil {
 			return err
 		}
 
@@ -325,6 +363,52 @@ Example:
 	},
 }
 
+var writeCheckpointCmd = &cobra.Command{
+	Use:   "write-checkpoint <task-id>",
+	Short: "Write a pre-execution checkpoint for a task",
+	Long: `Write a pre-execution checkpoint to a task's history.
+
+The checkpoint records the agent's intent, validation plan, and files to modify
+before implementation begins. Required before submitting for review.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		taskID := args[0]
+
+		agentID, err := requireAgentID(cmd)
+		if err != nil {
+			return err
+		}
+
+		if err := commands.RequireRole(agentID, commands.MutationRoles["write-checkpoint"]...); err != nil {
+			return err
+		}
+
+		intent, _ := cmd.Flags().GetString("intent")
+		validationPlan, _ := cmd.Flags().GetString("validation-plan")
+		filesStr, _ := cmd.Flags().GetString("files")
+
+		var filesToModify []string
+		if filesStr != "" {
+			filesToModify = strings.Split(filesStr, ",")
+		}
+
+		projectRoot, err := requireProjectRoot()
+		if err != nil {
+			return err
+		}
+
+		input := &ops.WriteCheckpointInput{
+			TaskID:         taskID,
+			AgentID:        agentID,
+			Intent:         intent,
+			ValidationPlan: validationPlan,
+			FilesToModify:  filesToModify,
+		}
+
+		return ops.WriteCheckpoint(projectRoot, input)
+	},
+}
+
 var deleteTaskCmd = &cobra.Command{
 	Use:   "task <task-id>",
 	Short: "Delete a task from the state database",
@@ -349,6 +433,7 @@ in MERGED state cannot be deleted by default (as they represent integrated work)
 func init() {
 	rootCmd.AddCommand(claimTaskCmd)
 	rootCmd.AddCommand(addTaskCmd)
+	rootCmd.AddCommand(writeCheckpointCmd)
 	rootCmd.AddCommand(supersedeTaskCmd)
 	rootCmd.AddCommand(cancelTaskCmd)
 	rootCmd.AddCommand(markBlockedCmd)
@@ -359,6 +444,12 @@ func init() {
 	addAgentIDFlag(addTaskCmd)
 	addAgentIDFlag(supersedeTaskCmd)
 	addAgentIDFlag(cancelTaskCmd)
+	addAgentIDFlag(writeCheckpointCmd)
+
+	// Write-checkpoint command flags
+	writeCheckpointCmd.Flags().String("intent", "", "intent description for the checkpoint")
+	writeCheckpointCmd.Flags().String("validation-plan", "", "validation plan for the checkpoint")
+	writeCheckpointCmd.Flags().String("files", "", "comma-separated list of files to modify")
 
 	// Mark-blocked command flags
 	markBlockedCmd.Flags().String("reason", "", "reason why the task is blocked (required)")
@@ -385,6 +476,11 @@ func init() {
 	addTaskCmd.Flags().Int("priority", 0, "task priority (default: 1, overrides file value)")
 	addTaskCmd.Flags().String("depends", "", "comma-separated list of task IDs this task depends on (overrides file value)")
 	addTaskCmd.Flags().String("type", "", "task type determining role workflow (default: coding)")
+	addTaskCmd.Flags().String("acceptance-criteria", "", "comma-separated acceptance criteria")
+	addTaskCmd.Flags().String("verify-commands", "", "comma-separated verification commands")
+	addTaskCmd.Flags().String("requirement-refs", "", "comma-separated requirement references")
+	addTaskCmd.Flags().String("error-behavior", "", "expected error behavior")
+	addTaskCmd.Flags().String("origin-finding-id", "", "source audit finding ID")
 	addTaskCmd.Flags().String("state", "", "path to state.yaml (default: .liza/state.yaml)")
 	addTaskCmd.Flags().String("log", "", "path to log.yaml (default: .liza/log.yaml)")
 

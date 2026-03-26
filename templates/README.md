@@ -7,6 +7,7 @@ Templates for documents used in Liza-managed projects.
 | Template | Purpose | Copy To |
 |----------|---------|---------|
 | [vision-template.md](vision-template.md) | Goal-level vision document | `specs/vision.md` |
+| [spec_delivery.md](spec_delivery.md) | Delivery specification with ACs and verification | `specs/delivery-<feature>.md` |
 | [ADR/TEMPLATE.md](../specs/architecture/ADR/TEMPLATE.md) | Architecture Decision Record | `specs/architecture/ADR/ADR-NNN-title.md` |
 
 ## Usage

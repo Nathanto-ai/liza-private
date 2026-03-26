@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -129,6 +130,9 @@ func TestResumeCommand(t *testing.T) {
 //	CHECKPOINT + all terminal → COMPLETED (no archive), then
 //	COMPLETED → archive + new sprint (archive write happens here).
 func TestResumeCommand_ArchiveWriteFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix directory permission bits via os.Chmod")
+	}
 	tmpDir := t.TempDir()
 	stateFile, _ := testhelpers.SetupLizaDir(t, tmpDir)
 	testhelpers.SetupPipelineConfig(t, tmpDir)

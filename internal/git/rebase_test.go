@@ -36,7 +36,10 @@ func TestFetchFromLocal_Success(t *testing.T) {
 	}
 
 	// Verify FETCH_HEAD exists in worktree
-	fetchHeadPath := filepath.Join(wtPath, ".git", "FETCH_HEAD")
+	// In a git worktree, .git is a file (not a directory), so we must
+	// use rev-parse --git-dir to find the actual git directory.
+	gitDirOut := testhelpers.MustGit(t, wtPath, "rev-parse", "--git-dir")
+	fetchHeadPath := filepath.Join(strings.TrimSpace(gitDirOut), "FETCH_HEAD")
 	if _, err := os.Stat(fetchHeadPath); os.IsNotExist(err) {
 		t.Error("FETCH_HEAD was not created after fetch")
 	}

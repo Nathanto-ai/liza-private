@@ -74,7 +74,8 @@ func waitWhilePaused(ctx context.Context, projectRoot string) error {
 	}
 }
 
-// executeAgent executes the CLI with timeout
+// executeAgent executes the CLI with timeout.
+// Heartbeat is handled at the supervisor level to keep it active during idle periods.
 func executeAgent(ctx context.Context, config SupervisorConfig, prompt string) (int, error) {
 	logger := GetLogger()
 	// Interactive mode: launch CLI without -p so user can paste the prompt
@@ -93,7 +94,7 @@ func executeAgent(ctx context.Context, config SupervisorConfig, prompt string) (
 	// so we don't start one here.
 
 	// Execute CLI with timeout
-	exitCode, err := config.Executor.Execute(execCtx, config.CLIName, config.AgentID, prompt, config.ProjectRoot)
+	exitCode, err := config.Executor.Execute(execCtx, config.CLIName, config.AgentID, prompt, config.ProjectRoot, config.AutoApprove)
 
 	// Check if execution timed out
 	if err != nil && errors.Is(err, context.DeadlineExceeded) {
@@ -101,6 +102,15 @@ func executeAgent(ctx context.Context, config SupervisorConfig, prompt string) (
 			"agent_id", config.AgentID,
 			"timeout", config.ExecutionTimeout,
 			"hint", "CLI may be hung, will retry")
+		return 1, nil // Return failure code to trigger retry
+	}
+
+	// Check if parent context was cancelled (e.g., MCP inactivity timeout).
+	// This is NOT a fatal error — the supervisor should restart the session.
+	if err != nil && errors.Is(err, context.Canceled) {
+		logger.Warn("Agent execution cancelled (MCP inactivity or signal)",
+			"agent_id", config.AgentID,
+			"hint", "session will restart")
 		return 1, nil // Return failure code to trigger retry
 	}
 
@@ -214,6 +224,25 @@ func verifyOrchestratorStateChanges(bb *db.Blackboard, stateBefore *models.State
 				"actual_trigger", stateAfter.Sprint.CheckpointTrigger)
 		}
 		logger.Info("Orchestrator checkpointed planning completion")
+
+	case WakeTriggerReplanRequired:
+		// AUDIT_REPLAN_REQUIRED: expect unresolved replan findings to decrease
+		// (planner should create tasks with origin_finding_id, which auto-links findings)
+		unresolvedBefore := countUnresolvedReplanFindings(stateBefore)
+		unresolvedAfter := countUnresolvedReplanFindings(stateAfter)
+		if unresolvedAfter >= unresolvedBefore && unresolvedBefore > 0 {
+			return fmt.Errorf("planner completed with AUDIT_REPLAN_REQUIRED trigger but unresolved replan findings didn't decrease (before: %d, after: %d) — ensure tasks are created with origin_finding_id", unresolvedBefore, unresolvedAfter)
+		}
+		logger.Info("Planner addressed replan findings", "before", unresolvedBefore, "after", unresolvedAfter)
+
+	case WakeTriggerRemediationNeeded:
+		// AUDIT_REMEDIATION_NEEDED: expect unresolved remediation findings to decrease
+		unresolvedBefore := countUnresolvedRemediationFindings(stateBefore)
+		unresolvedAfter := countUnresolvedRemediationFindings(stateAfter)
+		if unresolvedAfter >= unresolvedBefore && unresolvedBefore > 0 {
+			return fmt.Errorf("planner completed with AUDIT_REMEDIATION_NEEDED trigger but unresolved remediation findings didn't decrease (before: %d, after: %d) — ensure tasks are created with origin_finding_id", unresolvedBefore, unresolvedAfter)
+		}
+		logger.Info("Planner addressed remediation findings", "before", unresolvedBefore, "after", unresolvedAfter)
 
 	case WakeTriggerSprintComplete:
 		// SPRINT_COMPLETE: expect sprint status to be CHECKPOINT (or COMPLETED)

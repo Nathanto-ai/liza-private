@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,24 @@ import (
 // setupGlobalLiza delegates to testhelpers.SetupGlobalLiza.
 func setupGlobalLiza(t *testing.T) string {
 	return testhelpers.SetupGlobalLiza(t)
+}
+
+// skipIfSymlinkUnsupported skips the test if symlinks cannot be created
+// (e.g. on Windows without Developer Mode or elevated privileges).
+func skipIfSymlinkUnsupported(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return
+	}
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "target")
+	if err := os.WriteFile(target, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(tmp, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("skipping: symlinks not supported on this Windows environment: %v", err)
+	}
 }
 
 func TestInitCommand(t *testing.T) {
@@ -36,7 +55,7 @@ func TestInitCommand(t *testing.T) {
 			description: "Test goal",
 			specRef:     "specs/vision.md",
 			setup: func(t *testing.T, tmpDir string) {
-				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 			},
 			wantErr: false,
 		},
@@ -45,7 +64,7 @@ func TestInitCommand(t *testing.T) {
 			description: "Test goal",
 			specRef:     "specs/vision.md",
 			setup: func(t *testing.T, tmpDir string) {
-				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 				// Create .liza directory
 				lizaDir := paths.New(tmpDir).LizaDir()
 				if err := os.Mkdir(lizaDir, 0755); err != nil {
@@ -69,10 +88,20 @@ func TestInitCommand(t *testing.T) {
 			specRef:     "specs/vision.md",
 			skipGlobal:  true,
 			setup: func(t *testing.T, tmpDir string) {
-				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 			},
 			wantErr:     true,
 			errContains: "Run 'liza setup' first",
+		},
+		{
+			name:        "spec validation fails for incomplete vision",
+			description: "Test goal",
+			specRef:     "specs/vision.md",
+			setup: func(t *testing.T, tmpDir string) {
+				testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\nJust a title.\n")
+			},
+			wantErr:     true,
+			errContains: "spec validation failed",
 		},
 	}
 
@@ -89,6 +118,7 @@ func TestInitCommand(t *testing.T) {
 				// Point HOME to an empty dir so global check fails
 				emptyHome := t.TempDir()
 				t.Setenv("HOME", emptyHome)
+				t.Setenv("USERPROFILE", emptyHome) // Windows uses USERPROFILE
 			}
 
 			// Change to temp directory
@@ -141,7 +171,7 @@ func TestInitCommandDirectoryStructure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Run init
 	if err := InitCommand("Test goal", "specs/vision.md", nil); err != nil {
@@ -197,7 +227,7 @@ func TestInitCommandIntegrationBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Verify integration branch doesn't exist
 	cmd := exec.Command("git", "rev-parse", "--verify", "integration")
@@ -369,6 +399,7 @@ func verifyInitialization(t *testing.T, tmpDir, description, specRef string) {
 }
 
 func TestInitCommand_CreatesContractSymlinks(t *testing.T) {
+	skipIfSymlinkUnsupported(t)
 	// Create temporary git repo
 	gitDir := setupGitRepo(t)
 	defer os.RemoveAll(gitDir)
@@ -386,7 +417,7 @@ func TestInitCommand_CreatesContractSymlinks(t *testing.T) {
 	}
 
 	// Setup
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Run init with explicit agent flags
 	err = InitCommandWithConfig(InitParams{
@@ -415,6 +446,7 @@ func TestInitCommand_CreatesContractSymlinks(t *testing.T) {
 }
 
 func TestInitCommand_SkipsCorrectSymlinks(t *testing.T) {
+	skipIfSymlinkUnsupported(t)
 	gitDir := setupGitRepo(t)
 	defer os.RemoveAll(gitDir)
 
@@ -429,7 +461,7 @@ func TestInitCommand_SkipsCorrectSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Pre-create CLAUDE.md as the correct symlink (absolute to global)
 	globalDir := filepath.Join(fakeHome, ".liza")
@@ -455,6 +487,7 @@ func TestInitCommand_SkipsCorrectSymlinks(t *testing.T) {
 }
 
 func TestInitCommand_BrownfieldFallsBackToGlobal(t *testing.T) {
+	skipIfSymlinkUnsupported(t)
 	gitDir := setupGitRepo(t)
 	defer os.RemoveAll(gitDir)
 
@@ -469,7 +502,7 @@ func TestInitCommand_BrownfieldFallsBackToGlobal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Pre-create CLAUDE.md as a regular file (brownfield project)
 	existingContent := "# Custom contract\n"
@@ -526,7 +559,7 @@ func TestInitCommand_BrownfieldExistingLizaAtGlobalSkipsCreation(t *testing.T) {
 	defer os.Chdir(originalDir)
 	os.Chdir(gitDir)
 
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	coreFile := filepath.Join(fakeHome, ".liza", "CORE.md")
 
@@ -569,7 +602,7 @@ func TestInitCommand_BrownfieldBothOccupiedWarns(t *testing.T) {
 	defer os.Chdir(originalDir)
 	os.Chdir(gitDir)
 
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// CLAUDE.md at repo root (non-Liza)
 	os.WriteFile(filepath.Join(gitDir, "CLAUDE.md"), []byte("project"), 0644)
@@ -625,7 +658,7 @@ func TestInitCommand_BrownfieldDuplicateLizaWarns(t *testing.T) {
 	defer os.Chdir(originalDir)
 	os.Chdir(gitDir)
 
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	coreFile := filepath.Join(fakeHome, ".liza", "CORE.md")
 
@@ -679,7 +712,7 @@ func TestInitCommand_WritesClaudeSettings(t *testing.T) {
 	}
 
 	// Setup
-	testhelpers.CreateSpecFile(t, gitDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Run init
 	err = InitCommand("Test goal", "specs/vision.md", nil)
@@ -701,7 +734,7 @@ func TestInitCommand_WritesClaudeSettings(t *testing.T) {
 	}
 
 	// Verify file permissions
-	if info.Mode().Perm() != 0644 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0644 {
 		t.Errorf("settings.json has wrong permissions: got %o, want 0644", info.Mode().Perm())
 	}
 
@@ -757,7 +790,7 @@ func TestInitCommand_WritesClaudeSettings(t *testing.T) {
 	hookInfo, hookErr := os.Stat(hookPath)
 	if os.IsNotExist(hookErr) {
 		t.Error(".claude/hooks/enforce-init.sh not created during workspace init")
-	} else if hookErr == nil && hookInfo.Mode()&0111 == 0 {
+	} else if hookErr == nil && runtime.GOOS != "windows" && hookInfo.Mode()&0111 == 0 {
 		t.Errorf("enforce-init.sh should be executable, got %o", hookInfo.Mode())
 	}
 }
@@ -840,7 +873,7 @@ func TestInitCommandWithConfig_FreezesPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 	configPath := writePipelineConfig(t, tmpDir, validPipelineYAML)
 
 	err = InitCommandWithConfig(InitParams{
@@ -887,7 +920,7 @@ func TestInitCommandWithConfig_EntryPoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 	configPath := writePipelineConfig(t, tmpDir, validPipelineYAML)
 
 	err = InitCommandWithConfig(InitParams{
@@ -925,7 +958,7 @@ func TestInitCommandWithConfig_NoConfigAutoFreezes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Init without --config auto-freezes embedded pipeline
 	err = InitCommand("Legacy goal", "specs/vision.md", nil)
@@ -969,7 +1002,7 @@ func TestInitCommandWithConfig_InvalidConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Write invalid pipeline config (missing required fields)
 	invalidYAML := `pipeline:
@@ -1008,7 +1041,7 @@ func TestInitCommandWithConfig_NonexistentEntryPoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 	configPath := writePipelineConfig(t, tmpDir, validPipelineYAML)
 
 	err = InitCommandWithConfig(InitParams{
@@ -1038,7 +1071,7 @@ func TestInitCommandWithConfig_PostWorktreeCmd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	err = InitCommandWithConfig(InitParams{
 		Description:     "Goal with post-worktree-cmd",
@@ -1077,7 +1110,7 @@ func TestInitCommandWithConfig_PostWorktreeCmdOmittedWhenEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	err = InitCommandWithConfig(InitParams{
 		Description: "Goal without post-worktree-cmd",
@@ -1142,7 +1175,7 @@ func TestInitPairingCommand_Claude(t *testing.T) {
 	hookInfo, err := os.Stat(hookPath)
 	if os.IsNotExist(err) {
 		t.Error(".claude/hooks/enforce-init.sh should be created for --claude pairing")
-	} else if err == nil && hookInfo.Mode()&0111 == 0 {
+	} else if err == nil && runtime.GOOS != "windows" && hookInfo.Mode()&0111 == 0 {
 		t.Errorf("enforce-init.sh should be executable, got %o", hookInfo.Mode())
 	}
 
@@ -1471,7 +1504,7 @@ func TestInitCommandWithConfig_AutoSuggestsPostWorktreeCmd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Create package.json + yarn.lock to trigger suggestion
 	os.WriteFile(filepath.Join(tmpDir, "package.json"), []byte(`{"name":"test"}`), 0644)
@@ -1516,7 +1549,7 @@ func TestInitCommandWithConfig_AutoSuggestDeclined(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Create package.json to trigger suggestion
 	os.WriteFile(filepath.Join(tmpDir, "package.json"), []byte(`{"name":"test"}`), 0644)
@@ -1557,7 +1590,7 @@ func TestInitCommandWithConfig_NonInteractiveSkipsAutoDetect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Create package.json + yarn.lock — would trigger prompt in interactive mode
 	os.WriteFile(filepath.Join(tmpDir, "package.json"), []byte(`{"name":"test"}`), 0644)
@@ -1598,7 +1631,7 @@ func TestInitCommandWithConfig_ExplicitFlagSkipsAutoDetect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// Create package.json + yarn.lock
 	os.WriteFile(filepath.Join(tmpDir, "package.json"), []byte(`{"name":"test"}`), 0644)
@@ -1642,7 +1675,7 @@ func TestInitCommandWithConfig_EntryPointWithoutConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", "# Vision\n")
+	testhelpers.CreateSpecFile(t, tmpDir, "vision.md", testhelpers.ValidVisionSpec)
 
 	// --entry-point without --config now succeeds because embedded pipeline
 	// is auto-loaded and "detailed-spec" exists in the embedded config
@@ -1663,5 +1696,110 @@ func TestInitCommandWithConfig_EntryPointWithoutConfig(t *testing.T) {
 	}
 	if state.Goal.EntryPoint != "detailed-spec" {
 		t.Errorf("state.Goal.EntryPoint = %q, want %q", state.Goal.EntryPoint, "detailed-spec")
+	}
+}
+
+func TestInitCommand_CreatesGitignoreEntries(t *testing.T) {
+	gitDir := setupGitRepo(t)
+	defer os.RemoveAll(gitDir)
+	setupGlobalLiza(t)
+
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(gitDir)
+
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
+
+	if err := InitCommand("Test goal", "specs/vision.md", nil); err != nil {
+		t.Fatalf("InitCommand failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(gitDir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("Failed to read .gitignore: %v", err)
+	}
+	lines := string(content)
+	if !strings.Contains(lines, ".liza/") {
+		t.Errorf(".gitignore missing .liza/ entry; got:\n%s", lines)
+	}
+	if !strings.Contains(lines, ".worktrees/") {
+		t.Errorf(".gitignore missing .worktrees/ entry; got:\n%s", lines)
+	}
+}
+
+func TestInitCommand_GitignorePreservesExisting(t *testing.T) {
+	gitDir := setupGitRepo(t)
+	defer os.RemoveAll(gitDir)
+	setupGlobalLiza(t)
+
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+	os.Chdir(gitDir)
+
+	testhelpers.CreateSpecFile(t, gitDir, "vision.md", testhelpers.ValidVisionSpec)
+
+	// Pre-create .gitignore with existing content and one of the entries
+	existing := "node_modules/\n.liza/\n"
+	os.WriteFile(filepath.Join(gitDir, ".gitignore"), []byte(existing), 0644)
+
+	if err := InitCommand("Test goal", "specs/vision.md", nil); err != nil {
+		t.Fatalf("InitCommand failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(gitDir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("Failed to read .gitignore: %v", err)
+	}
+	lines := string(content)
+	// .liza/ should appear exactly once (not duplicated)
+	if strings.Count(lines, ".liza/") != 1 {
+		t.Errorf(".liza/ should appear once; got:\n%s", lines)
+	}
+	// .worktrees/ should have been appended
+	if !strings.Contains(lines, ".worktrees/") {
+		t.Errorf(".gitignore missing .worktrees/ entry; got:\n%s", lines)
+	}
+	// Original content preserved
+	if !strings.Contains(lines, "node_modules/") {
+		t.Errorf("original .gitignore content lost; got:\n%s", lines)
+	}
+}
+
+func TestEnsureGitignoreEntries_NoFileYet(t *testing.T) {
+	tmpDir := t.TempDir()
+	gitignorePath := filepath.Join(tmpDir, ".gitignore")
+
+	if err := ensureGitignoreEntries(tmpDir); err != nil {
+		t.Fatalf("ensureGitignoreEntries failed: %v", err)
+	}
+
+	content, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatalf("Failed to read .gitignore: %v", err)
+	}
+	lines := string(content)
+	if !strings.Contains(lines, ".liza/") || !strings.Contains(lines, ".worktrees/") {
+		t.Errorf("expected both entries; got:\n%s", lines)
+	}
+}
+
+func TestEnsureGitignoreEntries_Idempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Run twice
+	if err := ensureGitignoreEntries(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureGitignoreEntries(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	content, _ := os.ReadFile(filepath.Join(tmpDir, ".gitignore"))
+	lines := string(content)
+	if strings.Count(lines, ".liza/") != 1 {
+		t.Errorf(".liza/ duplicated; got:\n%s", lines)
+	}
+	if strings.Count(lines, ".worktrees/") != 1 {
+		t.Errorf(".worktrees/ duplicated; got:\n%s", lines)
 	}
 }

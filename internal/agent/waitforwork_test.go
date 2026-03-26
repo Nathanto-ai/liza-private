@@ -640,6 +640,11 @@ func TestWaitForWorkEventDrivenAbortStateMode(t *testing.T) {
 
 	<-started
 
+	// Brief pause to let WaitForWork goroutine complete its initial state read
+	// before we modify the file. On Windows, concurrent file access causes
+	// "Access is denied" or "being used by another process" errors.
+	time.Sleep(50 * time.Millisecond)
+
 	// Set state to STOPPED
 	if err := bb.Modify(func(s *models.State) error {
 		s.Config.Mode = models.SystemModeStopped
@@ -1210,5 +1215,64 @@ func TestWaitForCoderWorkDetectsResumableHandoff(t *testing.T) {
 	}
 	if !hasWork {
 		t.Fatal("expected resumable handoff to be detected as available work")
+	}
+}
+
+// TestWaitForCoderWorkDetectsOwnInProgressTask tests that the coder detects
+// its own IMPLEMENTING task (not handoff-pending) as available work, enabling
+// re-invocation when the CLI exits without completing the task.
+func TestWaitForCoderWorkDetectsOwnInProgressTask(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath, _ := testhelpers.SetupLizaDir(t, tmpDir)
+	lizaDir := filepath.Dir(statePath)
+
+	now := time.Now().UTC()
+	state := testhelpers.CreateValidState()
+	task := testhelpers.BuildTaskByStatus("task-1", models.TaskStatusImplementing, now)
+	task.HandoffPending = false
+	task.AssignedTo = testhelpers.StringPtr("coder-1")
+	state.Tasks = []models.Task{task}
+	state.Config.Mode = models.SystemModeRunning
+	testhelpers.WriteInitialState(t, statePath, state)
+
+	bb := db.New(statePath)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	hasWork, err := waitForCoderWork(ctx, bb, lizaDir, "coder-1", 10*time.Millisecond, 200*time.Millisecond)
+	if err != nil {
+		t.Fatalf("waitForCoderWork() error = %v", err)
+	}
+	if !hasWork {
+		t.Fatal("expected own in-progress task to be detected as available work")
+	}
+}
+
+// TestWaitForCoderWorkIgnoresOtherAgentInProgressTask ensures a coder does NOT
+// see another agent's IMPLEMENTING task as its own work.
+func TestWaitForCoderWorkIgnoresOtherAgentInProgressTask(t *testing.T) {
+	tmpDir := t.TempDir()
+	statePath, _ := testhelpers.SetupLizaDir(t, tmpDir)
+	lizaDir := filepath.Dir(statePath)
+
+	now := time.Now().UTC()
+	state := testhelpers.CreateValidState()
+	task := testhelpers.BuildTaskByStatus("task-1", models.TaskStatusImplementing, now)
+	task.HandoffPending = false
+	task.AssignedTo = testhelpers.StringPtr("coder-2") // different agent
+	state.Tasks = []models.Task{task}
+	state.Config.Mode = models.SystemModeRunning
+	testhelpers.WriteInitialState(t, statePath, state)
+
+	bb := db.New(statePath)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	hasWork, err := waitForCoderWork(ctx, bb, lizaDir, "coder-1", 10*time.Millisecond, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("waitForCoderWork() error = %v", err)
+	}
+	if hasWork {
+		t.Fatal("expected other agent's in-progress task NOT to be detected as work")
 	}
 }

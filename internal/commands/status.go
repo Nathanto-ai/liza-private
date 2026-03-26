@@ -3,10 +3,8 @@ package commands
 import (
 	"fmt"
 	"log"
-	"os"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/liza-mas/liza/internal/agent"
@@ -59,9 +57,8 @@ type sprintStatus struct {
 }
 
 type configStatus struct {
-	Mode        string  `json:"mode"`
-	PausedBy    *string `json:"paused_by,omitempty"`
-	PauseReason *string `json:"pause_reason,omitempty"`
+	Mode     string  `json:"mode"`
+	PausedBy *string `json:"paused_by,omitempty"`
 }
 
 type taskStatus struct {
@@ -136,12 +133,20 @@ func buildStatusData(state *models.State, detailed bool, projectRoot string) sta
 		SpecRef:     state.Goal.SpecRef,
 	}
 
+	// Compute TasksDone live from task states
+	tasksDone := 0
+	for _, task := range state.Tasks {
+		if task.Status.IsComplete() {
+			tasksDone++
+		}
+	}
+
 	data.Sprint = sprintStatus{
 		ID:         state.Sprint.ID,
 		Number:     state.Sprint.Number,
 		Status:     string(state.Sprint.Status),
 		StartTime:  state.Sprint.Timeline.Started.Format(time.RFC3339),
-		TasksDone:  state.Sprint.Metrics.TasksDone,
+		TasksDone:  tasksDone,
 		TasksTotal: len(state.Tasks),
 	}
 
@@ -219,7 +224,7 @@ func buildTaskStatus(state *models.State, pr models.PipelineResolver) taskStatus
 	for _, task := range state.Tasks {
 		ts.ByStatus[string(task.Status)]++
 
-		if task.Status.IsTerminal() {
+		if task.Status.IsComplete() {
 			ts.Terminal++
 		} else {
 			ts.Active++
@@ -272,6 +277,11 @@ func buildAgentStatuses(state *models.State) []agentStatus {
 		agents = append(agents, as)
 	}
 
+	// Sort agents by ID for deterministic output between invocations.
+	slices.SortFunc(agents, func(a, b agentStatus) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+
 	return agents
 }
 
@@ -320,6 +330,12 @@ func buildOrchestratorStatus(state *models.State, projectRoot string) orchestrat
 	return ps
 }
 
+// detectPlannerWakeTriggers detects conditions for status display
+func detectPlannerWakeTriggers(state *models.State) (trigger string, count int) {
+	result := agent.DetectPlannerWakeTriggers(state)
+	return string(result.Trigger), result.Count
+}
+
 // buildWorkQueuesStatus calculates work queue availability
 func buildWorkQueuesStatus(state *models.State, claimable, reviewable int, pr models.PipelineResolver) workQueuesStatus {
 	return workQueuesStatus{
@@ -334,23 +350,16 @@ func buildWorkQueuesStatus(state *models.State, claimable, reviewable int, pr mo
 	}
 }
 
-// getProcessStatus checks if a process is running
+// getProcessStatus checks if a process is running using the platform-specific
+// ops.IsProcessAlive which correctly uses OpenProcess+GetExitCodeProcess on
+// Windows and Signal(0) on Unix.
 func getProcessStatus(pid int) string {
 	if pid == 0 {
 		return "unknown"
 	}
-
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return "not found"
-	}
-
-	// Signal 0 checks process existence without actually signaling
-	err = process.Signal(syscall.Signal(0))
-	if err == nil {
+	if ops.IsProcessAlive(pid) {
 		return "running"
 	}
-
 	return "stopped"
 }
 

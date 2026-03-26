@@ -257,6 +257,8 @@ func TestOrchestratorWakeTriggerSpecs(t *testing.T) {
 		WakeTriggerBlocked,
 		WakeTriggerHypothesisExhausted,
 		WakeTriggerImmediateDiscovery,
+		WakeTriggerReplanRequired,
+		WakeTriggerRemediationNeeded,
 	}
 
 	if len(orchestratorWakeTriggerSpecs) != len(wantOrder) {

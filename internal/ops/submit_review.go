@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/liza-mas/liza/internal/db"
@@ -69,6 +70,16 @@ func SubmitForReview(projectRoot, taskID, commitSHA, agentID string) (*SubmitFor
 	}
 	pipelineTransitions := BuildPipelineTransitions(resolver)
 
+	if task.Status == models.TaskStatusSuperseded {
+		replacements := "unknown"
+		if len(task.SupersededBy) > 0 {
+			replacements = strings.Join(task.SupersededBy, ", ")
+		}
+		return nil, &PreconditionError{
+			Reason: fmt.Sprintf("task %s was SUPERSEDED (replaced by: %s) — stop work on this task and exit with code 0", taskID, replacements),
+		}
+	}
+
 	if task.Status != expectedCurrentStatus {
 		return nil, &PreconditionError{Reason: fmt.Sprintf("task %s is not %s (current status: %s)", taskID, expectedCurrentStatus, task.Status)}
 	}
@@ -115,9 +126,12 @@ func SubmitForReview(projectRoot, taskID, commitSHA, agentID string) (*SubmitFor
 	if err != nil {
 		return nil, &OperationalError{Message: "failed to read worktree HEAD", Err: err}
 	}
-	if commitSHA != preRebaseCommit {
+	// Accept both full SHAs and short prefixes (minimum 7 chars)
+	if !strings.HasPrefix(preRebaseCommit, commitSHA) {
 		return nil, &PreconditionError{Reason: fmt.Sprintf("provided commit SHA %s does not match worktree HEAD %s", commitSHA, preRebaseCommit)}
 	}
+	// Normalize to full SHA for downstream storage
+	commitSHA = preRebaseCommit
 
 	// TDD enforcement: code tasks must include test files (doer roles only).
 	roleType, _ := resolver.RoleType(runtimeRole)
@@ -127,7 +141,13 @@ func SubmitForReview(projectRoot, taskID, commitSHA, agentID string) (*SubmitFor
 			return nil, &OperationalError{Message: "failed to check for test files", Err: err}
 		}
 		if !hasTests && GetTDDWaiver(task.History, agentID) == "" {
-			return nil, &PreconditionError{Reason: fmt.Sprintf("task %s: code tasks must include test files (e.g. *_test.go, *.test.ts, test_*.py) — TDD is mandatory", taskID)}
+			return nil, &PreconditionError{Reason: fmt.Sprintf(
+				"task %s: code tasks must include test files — TDD is mandatory. "+
+					"Expected patterns: *_test.go, *.test.{js,ts,jsx,tsx}, *.spec.{js,ts,jsx,tsx}, "+
+					"test_*.py, *_test.py, test_*.sh, *_test.sh, *_test.rb, *_spec.rb, "+
+					"*Test.java, *Test.kt, *_test.rs, or files under __tests__/ or tests/ directories. "+
+					"Submit waiver via liza_write_checkpoint with tdd_not_required if tests are not applicable",
+				taskID)}
 		}
 	}
 
@@ -145,27 +165,20 @@ func SubmitForReview(projectRoot, taskID, commitSHA, agentID string) (*SubmitFor
 	}
 
 	if err := g.RebaseOnto(wtPath, "FETCH_HEAD"); err != nil {
-		// Abort rebase to restore clean worktree state — don't leave agents
-		// in a mid-rebase state where they struggle with --continue/--abort.
+		// Abort rebase to restore clean worktree state
 		if abortErr := g.AbortRebase(wtPath); abortErr != nil {
 			log.Printf("WARNING: failed to abort rebase in %s: %v", wtPath, abortErr)
 		}
 
-		// Only transition to INTEGRATION_FAILED for true merge conflicts.
-		// Generic rebase failures (tool/env issues) are returned as-is so the
-		// agent can retry without a state transition.
 		var rebaseConflict *gitpkg.RebaseConflictError
 		if !stderrors.As(err, &rebaseConflict) {
 			return nil, &OperationalError{Message: "rebase failed (not a merge conflict)", Err: err}
 		}
 
-		// Transition to INTEGRATION_FAILED so the orchestrator re-queues the task.
-		// This catches conflicts early (before review), avoiding a wasted review cycle.
-		// See also: markIntegrationFailed in wt_merge.go (sibling for post-review merge path).
 		markErr := markSubmitRebaseConflict(bb, taskID, agentID, pipelineTransitions)
 		if markErr != nil {
 			return nil, &OperationalError{
-				Message: fmt.Sprintf("rebase conflict on %s: transition to INTEGRATION_FAILED also failed — worktree is intact (rebase aborted), check task state with liza_get tasks/%s before retrying", taskID, taskID),
+				Message: fmt.Sprintf("rebase conflict on %s: transition to INTEGRATION_FAILED also failed", taskID),
 				Err:     markErr,
 			}
 		}

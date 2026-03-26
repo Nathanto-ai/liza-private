@@ -51,6 +51,7 @@ func ValidateStateFile(statePath string, skipSpecFileCheck bool, warnWriter io.W
 		func(state *models.State, projectRoot string, skipSpecFileCheck bool) error {
 			return validateTaskInvariants(state, projectRoot, skipSpecFileCheck, resolver, cfg)
 		},
+		validateTaskQuality,
 		func(state *models.State, projectRoot string, skipSpecFileCheck bool) error {
 			return validateDependencies(state, projectRoot, skipSpecFileCheck, resolver, cfg)
 		},
@@ -60,6 +61,7 @@ func ValidateStateFile(statePath string, skipSpecFileCheck bool, warnWriter io.W
 		validateDiscovered,
 		validateAnomalies,
 		validateHandoffEvents,
+		validateAuditFindings,
 		validateSprint,
 	}
 

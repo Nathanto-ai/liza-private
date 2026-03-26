@@ -47,7 +47,7 @@ func TestBuildBasePrompt(t *testing.T) {
 				"~/.liza/ = installed contracts & skills",
 				"/project/.liza/ = runtime state & blackboard",
 				"You have FULL read access to both .liza/ directories",
-				"For READING state: use liza_get with targeted queries",
+			"For READING state: use liza_get with targeted queries",
 				"For MODIFYING state: use role-specific MCP tools ONLY",
 				"NEVER edit state.yaml directly",
 				"Execute commands immediately",
@@ -363,6 +363,163 @@ func testPipelineResolver(t *testing.T) *pipeline.Resolver {
 	return pipeline.NewResolver(cfg)
 }
 
+// TestBuildPlannerContext_AuditRemediationTrigger is a regression test ensuring
+// that REMEDIATE_WITH_TASK audit findings trigger the remediation wake
+// instruction and include the findings in the prompt context.
+func TestBuildPlannerContext_AuditRemediationTrigger(t *testing.T) {
+	now := time.Now().UTC()
+
+	state := testhelpers.CreateValidState()
+	state.Tasks = []models.Task{
+		testhelpers.BuildTaskByStatus("task-1", models.TaskStatusMerged, now),
+	}
+	state.Sprint.Scope.Planned = []string{"task-1"}
+	state.AuditFindings = []models.AuditFinding{
+		{
+			ID:                "cli-001",
+			TaskID:            "task-1",
+			Severity:          "MEDIUM",
+			Type:              "QUALITY_ISSUE",
+			Phase:             "post_merge",
+			Classification:    "REMEDIATE_WITH_TASK",
+			Evidence:          "uses err == instead of errors.Is()",
+			RecommendedAction: "Create task to fix error comparison",
+			Created:           now,
+			Resolved:          false,
+			LinkedTaskID:      "",
+		},
+	}
+
+	config := PlannerContextConfig{}
+	result, err := BuildPlannerContext(state, config)
+	if err != nil {
+		t.Fatalf("BuildPlannerContext() error: %v", err)
+	}
+
+	wantContains := []string{
+		"WAKE TRIGGER: AUDIT_REMEDIATION_NEEDED",
+		"AUDIT FINDINGS",
+		"cli-001",
+		"REMEDIATE_WITH_TASK",
+		"uses err == instead of errors.Is()",
+		"Create task to fix error comparison",
+		"unresolved REMEDIATE_WITH_TASK",
+		"Do NOT create a sprint checkpoint",
+	}
+
+	for _, want := range wantContains {
+		if !strings.Contains(result, want) {
+			t.Errorf("BuildPlannerContext() missing expected content: %q\n\nFull output:\n%s", want, result)
+		}
+	}
+
+	if strings.Contains(result, "SPRINT_COMPLETE") {
+		t.Error("BuildPlannerContext() should NOT contain SPRINT_COMPLETE when audit remediation is needed")
+	}
+}
+
+func TestBuildCoderContext(t *testing.T) {
+	now := time.Now().UTC()
+
+	tests := []struct {
+		name         string
+		task         *models.Task
+		config       CoderContextConfig
+		wantContains []string
+	}{
+		{
+			name: "first iteration without rejection",
+			task: func() *models.Task {
+				task := testhelpers.BuildTaskByStatus("task-1", models.TaskStatusImplementing, now)
+				task.Description = "Implement authentication"
+				task.DoneWhen = "Users can login and logout"
+				task.Scope = "Add auth module to backend"
+				task.Iteration = 1
+				worktree := ".worktrees/task-1"
+				task.Worktree = &worktree
+				return &task
+			}(),
+			config: CoderContextConfig{
+				ProjectRoot: "/project",
+				AgentID:     "coder-1",
+			},
+			wantContains: []string{
+				"=== ASSIGNED TASK ===",
+				"TASK ID: task-1",
+				"WORKTREE: /project/.worktrees/task-1",
+				"ITERATION: 1",
+				"DESCRIPTION: Implement authentication",
+			},
+		},
+		{
+			name: "handoff resume context is rendered",
+			task: func() *models.Task {
+				task := testhelpers.BuildTaskByStatus("task-1", models.TaskStatusImplementing, now)
+				task.Description = "Continue parser hardening"
+				task.DoneWhen = "All parser edge cases handled"
+				task.Scope = "Parser module"
+				task.Iteration = 2
+				worktree := ".worktrees/task-1"
+				task.Worktree = &worktree
+				return &task
+			}(),
+			config: CoderContextConfig{
+				ProjectRoot: "/project",
+				AgentID:     "coder-1",
+				HandoffNote: &models.HandoffNote{
+					Agent:      "coder-1",
+					Summary:    "Parser support added for nested objects",
+					NextAction: "Add malformed payload tests",
+				},
+			},
+			wantContains: []string{
+				"=== HANDOFF RESUME CONTEXT ===",
+				"FROM: coder-1",
+				"SUMMARY: Parser support added for nested objects",
+				"NEXT ACTION: Add malformed payload tests",
+			},
+		},
+		{
+			name: "second iteration with rejection feedback",
+			task: func() *models.Task {
+				task := testhelpers.BuildTaskByStatus("task-1", models.TaskStatusImplementing, now)
+				task.Description = "Add validation"
+				task.DoneWhen = "All inputs validated"
+				task.Scope = "Add validation layer"
+				task.Iteration = 2
+				rejectionReason := "Missing edge case tests for empty strings"
+				task.RejectionReason = &rejectionReason
+				worktree := ".worktrees/task-1"
+				task.Worktree = &worktree
+				return &task
+			}(),
+			config: CoderContextConfig{
+				ProjectRoot: "/project",
+				AgentID:     "coder-1",
+			},
+			wantContains: []string{
+				"ITERATION: 2",
+				"=== PRIOR REJECTION FEEDBACK (MUST ADDRESS) ===",
+				"Missing edge case tests for empty strings",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := BuildCoderContext(tt.task, tt.config)
+			if err != nil {
+				t.Fatalf("BuildCoderContext() error: %v", err)
+			}
+			for _, want := range tt.wantContains {
+				if !strings.Contains(result, want) {
+					t.Errorf("BuildCoderContext() missing expected content: %q", want)
+				}
+			}
+		})
+	}
+}
+
 func TestRenderOrchestratorDashboard_EntryPoints(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -591,6 +748,63 @@ func TestBasePromptRegressionGuard(t *testing.T) {
 		"REVIEW CHECKLIST",
 		"VERDICT SUBMISSION",
 	})
+}
+
+func TestReviewerPromptHasAutonomyGuidance(t *testing.T) {
+	now := time.Now().UTC()
+	task := testhelpers.BuildTaskByStatus("task-1", models.TaskStatusReadyForReview, now)
+	task.Description = "Add authentication"
+	task.DoneWhen = "Users can login"
+	assignedTo := "coder-1"
+	task.AssignedTo = &assignedTo
+	baseCommit := "abc123"
+	task.BaseCommit = &baseCommit
+	reviewCommit := "def456"
+	task.ReviewCommit = &reviewCommit
+	task.Iteration = 1
+	worktree := ".worktrees/task-1"
+	task.Worktree = &worktree
+
+	config := ReviewerContextConfig{
+		ProjectRoot: "/project",
+		AgentID:     "code-reviewer-1",
+	}
+	prompt, err := BuildReviewerContext(&task, config)
+	if err != nil {
+		t.Fatalf("BuildReviewerContext() error: %v", err)
+	}
+
+	requiredPhrases := []string{
+		"YOU HAVE FULL TOOL ACCESS",
+		"You CAN and MUST execute Bash commands",
+		"Permission prompts are AUTOMATIC",
+		"--- VERDICT SUBMISSION (MANDATORY - DO NOT SKIP) ---",
+		"You have FULL autonomy to execute liza_submit_verdict",
+		"Your authority is PRE-GRANTED",
+		"Do NOT wait for permission",
+		"Do NOT rationalize waiting",
+		"You MUST execute liza_submit_verdict IN THIS SAME SESSION",
+		"After submitting verdict, call task_complete to end the session",
+		"FAILURE MODE:",
+		"The tool call IS the deliverable",
+	}
+
+	for _, phrase := range requiredPhrases {
+		if !strings.Contains(prompt, phrase) {
+			t.Errorf("Expected autonomy phrase not found in reviewer prompt: %s", phrase)
+		}
+	}
+
+	passivePhrases := []string{
+		"waiting for approval",
+		"once approved",
+		"pending approval",
+	}
+	for _, phrase := range passivePhrases {
+		if strings.Contains(strings.ToLower(prompt), phrase) {
+			t.Errorf("Reviewer prompt should not contain passive phrase: %s", phrase)
+		}
+	}
 }
 
 func TestRenderOrchestratorDashboard_AutonomyForAllWakeTriggers(t *testing.T) {

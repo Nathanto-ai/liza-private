@@ -50,7 +50,7 @@ func setupTestProject(t *testing.T) (projectDir string, cleanup func()) {
 func setupIntegrationTest(t *testing.T, projectDir string, taskIDs []string) (*db.Blackboard, string, string) {
 	t.Helper()
 
-	testhelpers.CreateSpecFile(t, projectDir, "feature.md", "# Feature")
+	testhelpers.CreateSpecFile(t, projectDir, "feature.md", testhelpers.ValidVisionSpec)
 
 	if err := commands.InitCommand("Test goal", "specs/feature.md", nil); err != nil {
 		t.Fatalf("Init failed: %v", err)

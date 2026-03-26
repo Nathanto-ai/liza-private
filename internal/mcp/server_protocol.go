@@ -85,6 +85,8 @@ func (s *Server) checkInitialized() error {
 
 // handleToolCall handles the tools/call request
 func (s *Server) handleToolCall(req *protocol.JSONRPCRequest) *protocol.JSONRPCResponse {
+	s.recordMCPActivity()
+
 	params, ok := req.Params.(map[string]any)
 	if !ok {
 		return rpcError(req, protocol.NewInvalidParamsError("params must be an object"))
@@ -174,7 +176,7 @@ var stringErrorRules = []struct {
 			"validation failed", "must include", "mandatory",
 		},
 		code:    protocol.ValidationError,
-		message: "validation failed: precondition not met",
+		message: "", // empty = pass through original message
 	},
 }
 
@@ -184,7 +186,11 @@ func matchStringErrorRule(msg string) *protocol.JSONRPCError {
 	for _, rule := range stringErrorRules {
 		for _, p := range rule.patterns {
 			if strings.Contains(msg, p) {
-				return protocol.NewError(rule.code, rule.message, nil)
+				m := rule.message
+				if m == "" {
+					m = msg
+				}
+				return protocol.NewError(rule.code, m, nil)
 			}
 		}
 	}
@@ -238,8 +244,8 @@ func (s *Server) classifyError(err error) *protocol.JSONRPCError {
 		return jerr
 	}
 
-	// Default: internal error without leaking implementation details
-	return protocol.NewError(protocol.InternalError, "internal error", nil)
+	// Default: pass through for agent visibility
+	return protocol.NewError(protocol.InternalError, err.Error(), nil)
 }
 
 // handleNotification processes JSON-RPC notifications (no response sent).

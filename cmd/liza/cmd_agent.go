@@ -15,7 +15,7 @@ import (
 	"github.com/liza-mas/liza/internal/db"
 	"github.com/liza-mas/liza/internal/identity"
 	"github.com/liza-mas/liza/internal/paths"
-	"github.com/liza-mas/liza/internal/pipeline"
+	"github.com/liza-mas/liza/internal/roles"
 	"github.com/spf13/cobra"
 )
 
@@ -34,6 +34,8 @@ The supervisor:
 - Loops until work is exhausted or ABORT signal
 
 Roles:
+	planner             - Legacy runtime planner role
+	auditor             - Audit and remediation role
   orchestrator        - Creates and manages task breakdown
 
   Specification phase:
@@ -76,18 +78,27 @@ Example:
 			initialTask = args[1]
 		}
 
-		projectRoot, err := requireProjectRoot()
-		if err != nil {
-			return err
-		}
-
-		pipelineCfg, pipelineErr := pipeline.LoadFrozen(projectRoot)
-		if pipelineErr != nil {
-			return fmt.Errorf("failed to load pipeline config: %w", pipelineErr)
-		}
-		validRoles := pipeline.NewResolver(pipelineCfg).AllRoleNames()
+		validRoles := append(roles.All(), roles.AllRuntime()...)
 		if !slices.Contains(validRoles, role) {
 			return fmt.Errorf("invalid role: %s (valid: %s)", role, strings.Join(validRoles, ", "))
+		}
+
+		cliName, _ := cmd.Flags().GetString("cli")
+		modelOverride, _ := cmd.Flags().GetString("model")
+		interactive, _ := cmd.Flags().GetBool("interactive")
+		logEnabled, _ := cmd.Flags().GetBool("log")
+		noLog, _ := cmd.Flags().GetBool("no-log")
+
+		if !slices.Contains([]string{"claude", "codex", "gemini", "mistral", "kimi", "copilot"}, cliName) {
+			return fmt.Errorf("invalid CLI: %s (must be claude, codex, gemini, mistral, kimi, or copilot)", cliName)
+		}
+
+		if modelOverride != "" && cliName != "copilot" {
+			return fmt.Errorf("--model is only supported with --cli copilot")
+		}
+
+		if interactive && logEnabled {
+			return fmt.Errorf("--log is incompatible with --interactive")
 		}
 
 		// Resolve agent ID: flag > env var > auto-generate from state
@@ -99,18 +110,20 @@ Example:
 		if err != nil {
 			return err
 		}
+		if agentID == "" {
+			if _, err := paths.GetProjectRoot(); err != nil {
+				return fmt.Errorf("agent ID required (use --agent-id flag or LIZA_AGENT_ID env var)")
+			}
+		}
 		autoAssigned := agentID == ""
 
 		if err := identity.ValidateRole(agentID, role); !autoAssigned && err != nil {
 			return err
 		}
 
-		cliName, _ := cmd.Flags().GetString("cli")
-		interactive, _ := cmd.Flags().GetBool("interactive")
-		noLog, _ := cmd.Flags().GetBool("no-log")
-
-		if !slices.Contains([]string{"claude", "codex", "gemini", "mistral", "kimi"}, cliName) {
-			return fmt.Errorf("invalid CLI: %s (must be claude, codex, gemini, mistral, or kimi)", cliName)
+		projectRoot, err := requireProjectRoot()
+		if err != nil {
+			return err
 		}
 
 		shouldLog := !noLog && !interactive
@@ -147,16 +160,17 @@ Example:
 			_, err = agent.AutoAssignAgentID(bb, role, 5, func(candidateID string) error {
 				fmt.Fprintf(os.Stderr, "Auto-assigned agent ID: %s\n", candidateID)
 				config := agent.SupervisorConfig{
-					AgentID:     candidateID,
-					Role:        role,
-					ProjectRoot: projectRoot,
-					StatePath:   statePath,
-					LogPath:     filepath.Join(projectRoot, ".liza", "log.yaml"),
-					SpecsDir:    specsDir,
-					CLIName:     cliName,
-					Interactive: interactive,
-					InitialTask: initialTask,
-					Executor:    agent.NewDefaultCLIExecutor(outputsDir),
+					AgentID:      candidateID,
+					Role:         role,
+					ProjectRoot:  projectRoot,
+					StatePath:    statePath,
+					LogPath:      filepath.Join(projectRoot, ".liza", "log.yaml"),
+					SpecsDir:     specsDir,
+					CLIName:      cliName,
+					Interactive:  interactive,
+					InitialTask:  initialTask,
+					Executor:     agent.NewDefaultCLIExecutor(outputsDir),
+					CopilotModel: modelOverride,
 				}
 				return agent.RunSupervisor(ctx, config)
 			})
@@ -164,16 +178,17 @@ Example:
 		}
 
 		config := agent.SupervisorConfig{
-			AgentID:     agentID,
-			Role:        role,
-			ProjectRoot: projectRoot,
-			StatePath:   statePath,
-			LogPath:     filepath.Join(projectRoot, ".liza", "log.yaml"),
-			SpecsDir:    specsDir,
-			CLIName:     cliName,
-			Interactive: interactive,
-			InitialTask: initialTask,
-			Executor:    agent.NewDefaultCLIExecutor(outputsDir),
+			AgentID:      agentID,
+			Role:         role,
+			ProjectRoot:  projectRoot,
+			StatePath:    statePath,
+			LogPath:      filepath.Join(projectRoot, ".liza", "log.yaml"),
+			SpecsDir:     specsDir,
+			CLIName:      cliName,
+			Interactive:  interactive,
+			InitialTask:  initialTask,
+			Executor:     agent.NewDefaultCLIExecutor(outputsDir),
+			CopilotModel: modelOverride,
 		}
 
 		return agent.RunSupervisor(ctx, config)
@@ -264,8 +279,10 @@ func init() {
 
 	// Agent command flags
 	addAgentIDFlag(agentCmd)
-	agentCmd.Flags().String("cli", "claude", "CLI to use (claude, codex, gemini, mistral)")
+	agentCmd.Flags().String("cli", "claude", "CLI to use (claude, codex, gemini, mistral, kimi, copilot)")
+	agentCmd.Flags().String("model", "", "Model override (only with --cli copilot)")
 	agentCmd.Flags().BoolP("interactive", "i", false, "Print prompt location, don't execute CLI")
+	agentCmd.Flags().Bool("log", false, "Enable saving agent output to .liza/agent-outputs/ (default unless --interactive)")
 	agentCmd.Flags().Bool("no-log", false, "Disable saving agent output to .liza/agent-outputs/")
 
 	// Recover-task command flags

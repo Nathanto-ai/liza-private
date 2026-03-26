@@ -44,7 +44,7 @@ func cleanupPredecessorBranches(bb *db.Blackboard, gw *git.Git, taskID string) [
 				allTerminal = false
 				break
 			}
-			if !successor.Status.IsTerminal() {
+			if !successor.Status.IsComplete() {
 				allTerminal = false
 				break
 			}

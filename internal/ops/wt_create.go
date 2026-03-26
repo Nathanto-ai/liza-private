@@ -2,9 +2,11 @@ package ops
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/liza-mas/liza/internal/db"
 	"github.com/liza-mas/liza/internal/errors"
@@ -118,7 +120,18 @@ func CreateWorktree(projectRoot, taskID string, fresh bool) (*CreateWorktreeResu
 // repo (same trust boundary as Makefile, .github/workflows/, package.json
 // scripts). No additional confirmation gate is needed.
 func RunPostWorktreeCmd(cmdStr, dir string) error {
-	cmd := exec.Command("sh", "-c", cmdStr)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		sh, err := findGitShell()
+		if err == nil {
+			cmd = exec.Command(sh, "-c", cmdStr)
+		} else {
+			log.Printf("post-worktree-cmd: WARNING — could not find Git for Windows sh.exe: %v", err)
+			cmd = exec.Command("sh", "-c", cmdStr)
+		}
+	} else {
+		cmd = exec.Command("sh", "-c", cmdStr)
+	}
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

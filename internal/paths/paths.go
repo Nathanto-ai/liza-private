@@ -23,6 +23,7 @@ const (
 
 	// Logs and reports
 	AlertsLogFileName            = "alerts.log"                // Alerts log file
+	EventsLogFileName            = "events.jsonl"              // Observability events log
 	SprintSummaryFileName        = "sprint_summary.md"         // Sprint summary report
 	CircuitBreakerReportFileName = "circuit_breaker_report.md" // Circuit breaker report
 
@@ -33,6 +34,9 @@ const (
 	ContractsDirName    = "contracts"     // Directory for contract files
 	SkillsDirName       = "skills"        // Directory for skill files
 	SpecsDirName        = "specs"         // Directory for specification files
+
+	// MCP activity tracking
+	MCPActivityFileName = "mcp-activity" // Timestamp file updated on each MCP tool call
 
 	// Claude-specific
 	ClaudeDirName      = ".claude"       // Claude directory name (in project root)
@@ -89,6 +93,11 @@ func (p LizaPaths) AlertsLogPath() string {
 	return p.get(AlertsLogFileName)
 }
 
+// EventsLogPath returns the path to the observability events log file.
+func (p LizaPaths) EventsLogPath() string {
+	return p.get(EventsLogFileName)
+}
+
 // SprintSummaryPath returns the path to the sprint summary report file.
 func (p LizaPaths) SprintSummaryPath() string {
 	return p.get(SprintSummaryFileName)
@@ -126,6 +135,11 @@ func (p LizaPaths) AgentOutputsDir() string {
 // ContractsDir returns the path to the contracts directory.
 func (p LizaPaths) ContractsDir() string {
 	return p.get(ContractsDirName)
+}
+
+// MCPActivityPath returns the path to the MCP activity timestamp file.
+func (p LizaPaths) MCPActivityPath() string {
+	return p.get(MCPActivityFileName)
 }
 
 // SkillsDir returns the path to the skills directory.
@@ -169,7 +183,7 @@ func GetProjectRoot() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("not a git repository or git command failed: %w", err)
 	}
-	toplevel := strings.TrimSpace(string(toplevelOut))
+	toplevel := filepath.FromSlash(strings.TrimSpace(string(toplevelOut)))
 
 	// Get the common git directory
 	commonDirCmd := exec.Command("git", "rev-parse", "--git-common-dir")

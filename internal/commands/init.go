@@ -16,6 +16,7 @@ import (
 	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/paths"
 	"github.com/liza-mas/liza/internal/pipeline"
+	"github.com/liza-mas/liza/internal/specvalidate"
 )
 
 // InitParams holds the parameters for InitCommand.
@@ -436,6 +437,22 @@ func InitCommandWithConfig(params InitParams) error {
 		return fmt.Errorf("spec file does not exist: %s\nCreate spec document first. See templates/vision-template.md", specRef)
 	}
 
+	// Validate spec content against required sections
+	specContent, err := os.ReadFile(specPath)
+	if err != nil {
+		return fmt.Errorf("failed to read spec file %s: %w", specRef, err)
+	}
+	specType := specvalidate.InferSpecType(specRef)
+	result := specvalidate.ValidateSpecFile(string(specContent), specType)
+	if len(result.Warnings) > 0 {
+		for _, w := range result.Warnings {
+			fmt.Fprintf(os.Stderr, "WARNING: %s\n", w)
+		}
+	}
+	if !result.Valid {
+		return fmt.Errorf("spec validation failed (detected type %q): missing sections: %v\nFix the spec or use 'liza validate-spec' to check", specType, result.Missing)
+	}
+
 	// Validate global config exists (liza setup must have been run)
 	globalDir, err := paths.GlobalLizaDir()
 	if err != nil {
@@ -494,6 +511,26 @@ func InitCommandWithConfig(params InitParams) error {
 		}
 		if len(names) > 0 {
 			createContractSymlinksFiltered(lizaPaths.ProjectRoot(), filepath.Join(globalDir, "CORE.md"), names)
+		}
+	}
+
+	// Create .github/copilot-instructions.md symlink for Copilot CLI contract loading.
+	// Copilot CLI reads custom instructions from .github/copilot-instructions.md.
+	contractTarget := filepath.Join(globalDir, "CORE.md")
+	copilotDir := filepath.Join(lizaPaths.ProjectRoot(), ".github")
+	copilotInstructionsLink := filepath.Join(copilotDir, "copilot-instructions.md")
+	if fi, err := os.Lstat(copilotInstructionsLink); os.IsNotExist(err) {
+		if mkErr := os.MkdirAll(copilotDir, 0755); mkErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create .github directory: %v\n", mkErr)
+		} else if symErr := os.Symlink(contractTarget, copilotInstructionsLink); symErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create .github/copilot-instructions.md symlink: %v\n", symErr)
+		}
+	} else if err == nil {
+		// Already exists — check if it's already the correct symlink.
+		if fi.Mode()&os.ModeSymlink == 0 {
+			fmt.Fprintf(os.Stderr, "Warning: .github/copilot-instructions.md exists but is not a symlink, skipping\n")
+		} else if target, readErr := os.Readlink(copilotInstructionsLink); readErr != nil || target != contractTarget {
+			fmt.Fprintf(os.Stderr, "Warning: .github/copilot-instructions.md exists but points elsewhere, skipping\n")
 		}
 	}
 
@@ -606,8 +643,12 @@ func InitCommandWithConfig(params InitParams) error {
 			CoderMaxWait:             7200,
 			OrchestratorPollInterval: 60,
 			OrchestratorMaxWait:      7200,
+			PlannerPollInterval:      60,
+			PlannerMaxWait:           1800,
 			ReviewerPollInterval:     30,
 			ReviewerMaxWait:          7200,
+			AuditorPollInterval:      60,
+			AuditorMaxWait:           1800,
 			IntegrationBranch:        "integration",
 			EscalationWebhook:        nil,
 			Mode:                     models.SystemModeRunning,
@@ -649,6 +690,12 @@ func InitCommandWithConfig(params InitParams) error {
 		return fmt.Errorf("failed to create lock file: %w", err)
 	}
 
+	// Ensure .liza/ and .worktrees/ are in .gitignore so runtime
+	// artifacts don't participate in review/merge diffs (Issue #4).
+	if err := ensureGitignoreEntries(lizaPaths.ProjectRoot()); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to update .gitignore: %v\n", err)
+	}
+
 	// Create integration branch if it doesn't exist
 	if err := createIntegrationBranch(); err != nil {
 		// Don't fail the entire init if branch creation fails
@@ -664,13 +711,32 @@ func InitCommandWithConfig(params InitParams) error {
 	return nil
 }
 
+// createIntegrationBranch creates the integration branch from the current
+// branch's HEAD. It resolves the current branch name explicitly so the
+// integration branch is always based on the correct commit.
 func createIntegrationBranch() error {
 	cmd := exec.Command("git", "rev-parse", "--verify", "integration")
 	if err := cmd.Run(); err == nil {
 		return nil
 	}
 
-	cmd = exec.Command("git", "branch", "integration", "HEAD")
+	// Resolve the current branch name to use as base
+	cmd = exec.Command("git", "symbolic-ref", "--short", "HEAD")
+	branchOut, err := cmd.Output()
+	if err != nil {
+		// Detached HEAD or error — fall back to HEAD
+		cmd = exec.Command("git", "branch", "integration", "HEAD")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("git branch failed: %w: %s", err, string(output))
+		}
+		return nil
+	}
+
+	baseBranch := strings.TrimSpace(string(branchOut))
+
+	// Create integration branch from the resolved branch tip
+	cmd = exec.Command("git", "branch", "integration", baseBranch)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git branch failed: %w: %s", err, string(output))
@@ -750,4 +816,53 @@ func entryPointNames(cfg *pipeline.PipelineConfig) string {
 	}
 	slices.Sort(names)
 	return strings.Join(names, ", ")
+}
+
+// ensureGitignoreEntries ensures .liza/ and .worktrees/ are listed in
+// the project's .gitignore so runtime artifacts stay out of version control.
+func ensureGitignoreEntries(projectRoot string) error {
+	gitignorePath := filepath.Join(projectRoot, ".gitignore")
+
+	required := []string{".liza/", ".worktrees/"}
+
+	existing := make(map[string]bool)
+	content, err := os.ReadFile(gitignorePath)
+	if err == nil {
+		for _, line := range strings.Split(string(content), "\n") {
+			existing[strings.TrimSpace(line)] = true
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	var toAdd []string
+	for _, entry := range required {
+		if !existing[entry] {
+			toAdd = append(toAdd, entry)
+		}
+	}
+
+	if len(toAdd) == 0 {
+		return nil
+	}
+
+	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		if _, err := f.WriteString("\n"); err != nil {
+			return err
+		}
+	}
+
+	for _, entry := range toAdd {
+		if _, err := f.WriteString(entry + "\n"); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

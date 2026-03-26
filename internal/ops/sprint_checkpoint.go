@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/liza-mas/liza/internal/db"
@@ -23,7 +24,12 @@ type SprintCheckpointResult struct {
 // SprintCheckpoint transitions sprint status to CHECKPOINT, causing agents to pause,
 // and writes a sprint summary report. The trigger parameter records why the checkpoint
 // was created (e.g. "PLANNING_COMPLETE", "SPRINT_COMPLETE", or "" for manual). No terminal I/O.
-func SprintCheckpoint(projectRoot string, trigger string) (*SprintCheckpointResult, error) {
+func SprintCheckpoint(projectRoot string, trigger ...string) (*SprintCheckpointResult, error) {
+	selectedTrigger := ""
+	if len(trigger) > 0 {
+		selectedTrigger = trigger[0]
+	}
+
 	lizaPaths := paths.New(projectRoot)
 	statePath := lizaPaths.StatePath()
 	reportPath := lizaPaths.SprintSummaryPath()
@@ -46,18 +52,27 @@ func SprintCheckpoint(projectRoot string, trigger string) (*SprintCheckpointResu
 
 	// Auto-detect PLANNING_COMPLETE when trigger is empty.
 	// This makes the system resilient to LLM omission of the trigger parameter.
-	if trigger == "" {
+	if selectedTrigger == "" {
 		if detCtx, detErr := LoadDetectionContext(projectRoot); detErr == nil {
 			for _, taskID := range state.Sprint.Scope.Planned {
 				task := state.FindTask(taskID)
 				if IsUnconsumedPlanningOutput(task, detCtx.PlanningPairs) {
-					trigger = models.CheckpointTriggerPlanningComplete
+					selectedTrigger = models.CheckpointTriggerPlanningComplete
 					break
 				}
 			}
 		}
 		// If LoadDetectionContext fails (no pipeline config), trigger stays empty.
 		// This is fine for legacy projects without pipelines.
+	}
+
+	// V&V guard: when RequireAuditForSprintClose is enabled, validate that
+	// all MERGED tasks have verification results and post-merge audits,
+	// and no unresolved REPLAN_REQUIRED/REMEDIATE_WITH_TASK findings exist.
+	if state.Config.RequireAuditForSprintClose {
+		if issues := validateSprintVV(state); len(issues) > 0 {
+			return nil, fmt.Errorf("cannot checkpoint: V&V requirements not met:\n  - %s", joinIssues(issues))
+		}
 	}
 
 	timestamp := time.Now()
@@ -70,7 +85,7 @@ func SprintCheckpoint(projectRoot string, trigger string) (*SprintCheckpointResu
 	err = blackboard.Modify(func(s *models.State) error {
 		s.Sprint.Status = models.SprintStatusCheckpoint
 		s.Sprint.Timeline.CheckpointAt = &timestamp
-		s.Sprint.CheckpointTrigger = trigger
+		s.Sprint.CheckpointTrigger = selectedTrigger
 		return nil
 	})
 
@@ -224,6 +239,53 @@ func nextStepsSection() string {
 	s += "- [ ] Resume sprint with `liza resume`\n"
 	s += "\n"
 	return s
+}
+
+// validateSprintVV checks V&V requirements for sprint checkpoint:
+// 1. Every MERGED task must have a VerificationResult (verify gate passed).
+// 2. Every MERGED task must have a post_merge audit finding.
+// 3. No unresolved REPLAN_REQUIRED findings.
+// 4. No unresolved REMEDIATE_WITH_TASK findings without a linked task.
+func validateSprintVV(state *models.State) []string {
+	var issues []string
+
+	// Build set of task IDs that have post_merge audit findings.
+	postMergeAudited := make(map[string]bool)
+	for _, f := range state.AuditFindings {
+		if f.Phase == "post_merge" {
+			postMergeAudited[f.TaskID] = true
+		}
+	}
+
+	for _, task := range state.Tasks {
+		if task.Status != models.TaskStatusMerged {
+			continue
+		}
+		if task.VerificationResult == nil {
+			issues = append(issues, fmt.Sprintf("task %s: missing verification result", task.ID))
+		} else if !task.VerificationResult.Passed {
+			issues = append(issues, fmt.Sprintf("task %s: verification result recorded but not passed", task.ID))
+		}
+		if !postMergeAudited[task.ID] {
+			issues = append(issues, fmt.Sprintf("task %s: missing post-merge audit", task.ID))
+		}
+	}
+
+	for _, f := range state.AuditFindings {
+		if f.Classification == "REPLAN_REQUIRED" && !f.Resolved {
+			issues = append(issues, fmt.Sprintf("unresolved REPLAN_REQUIRED finding: %s", f.Evidence))
+		}
+		if f.Classification == "REMEDIATE_WITH_TASK" && !f.Resolved && f.LinkedTaskID == "" {
+			issues = append(issues, fmt.Sprintf("unresolved REMEDIATE_WITH_TASK finding (no linked task): %s", f.Evidence))
+		}
+	}
+
+	return issues
+}
+
+// joinIssues joins a list of issue strings with newline-dash separators.
+func joinIssues(issues []string) string {
+	return strings.Join(issues, "\n  - ")
 }
 
 // formatDuration formats a duration in a human-readable format.

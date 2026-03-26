@@ -59,7 +59,8 @@ func (s *Server) registerReadOnlyTools() {
 		Name:        "liza_status",
 		Description: "Get current workspace status summary",
 		InputSchema: protocol.InputSchema{
-			Type: "object",
+			Type:       "object",
+			Properties: map[string]protocol.Property{},
 		},
 	}, s.handleStatus)
 
@@ -84,7 +85,8 @@ func (s *Server) registerReadOnlyTools() {
 		Name:        "liza_version",
 		Description: "Get Liza version information",
 		InputSchema: protocol.InputSchema{
-			Type: "object",
+			Type:       "object",
+			Properties: map[string]protocol.Property{},
 		},
 	}, s.handleVersion)
 }
@@ -127,6 +129,7 @@ func (s *Server) registerMutationTools() {
 						"tasks": {
 							Type:        "array",
 							Description: "Array of task objects. Each object has: id (string, required), desc (string, required), spec (string, required), done (string, required), scope (string, required), priority (number, default 1), depends (array of strings), type (string, default 'coding'), role_pair (string), plan_ref (string, optional)",
+							Items:       &protocol.PropertyItems{Type: "object"},
 						},
 						"agent_id": {
 							Type:        "string",
@@ -153,7 +156,7 @@ func (s *Server) registerMutationTools() {
 						"done":      {Type: "string", Description: "Completion criteria"},
 						"scope":     {Type: "string", Description: "Task scope description"},
 						"priority":  {Type: "number", Description: "Task priority (default: 1)", Default: 1},
-						"depends":   {Type: "array", Description: "List of task IDs this task depends on"},
+						"depends":   {Type: "array", Description: "List of task IDs this task depends on", Items: &protocol.PropertyItems{Type: "string"}},
 						"type":      {Type: "string", Description: "Task type (default: coding)", Default: "coding"},
 						"role_pair": {Type: "string", Description: "Role pair for the task (e.g. 'code-planning-pair')"},
 						"plan_ref":  {Type: "string", Description: "Path to the plan artifact that spawned this task"},
@@ -244,10 +247,12 @@ func (s *Server) registerMutationTools() {
 						"succeeded": {
 							Type:        "array",
 							Description: "What was attempted and worked (overrides summary when provided)",
+							Items:       &protocol.PropertyItems{Type: "string"},
 						},
 						"failed": {
 							Type:        "array",
 							Description: "What was tried and failed, and why",
+							Items:       &protocol.PropertyItems{Type: "string"},
 						},
 						"hypothesis": {
 							Type:        "string",
@@ -256,10 +261,12 @@ func (s *Server) registerMutationTools() {
 						"key_files": {
 							Type:        "array",
 							Description: "Files that matter for continuing the task",
+							Items:       &protocol.PropertyItems{Type: "string"},
 						},
 						"dead_ends": {
 							Type:        "array",
 							Description: "Approaches that were tried and should be avoided",
+							Items:       &protocol.PropertyItems{Type: "string"},
 						},
 					},
 					Required: []string{"task_id", "summary", "next_action", "agent_id"},
@@ -330,6 +337,7 @@ func (s *Server) registerMutationTools() {
 						"questions": {
 							Type:        "array",
 							Description: "1-3 clarifying questions that would unblock if answered",
+							Items:       &protocol.PropertyItems{Type: "string"},
 						},
 					},
 					Required: []string{"task_id", "agent_id", "reason", "questions"},
@@ -443,6 +451,7 @@ func (s *Server) registerMutationTools() {
 						"replacement_ids": {
 							Type:        "array",
 							Description: "List of replacement task IDs",
+							Items:       &protocol.PropertyItems{Type: "string"},
 						},
 						"reason": {
 							Type:        "string",
@@ -484,6 +493,58 @@ func (s *Server) registerMutationTools() {
 				},
 			},
 			handler: s.handleCancelTask,
+		},
+
+		// liza_submit_audit_finding tool
+		{
+			tool: protocol.Tool{
+				Name:        "liza_submit_audit_finding",
+				Description: "Submit an audit finding for a task. Requires auditor role.",
+				InputSchema: protocol.InputSchema{
+					Type: "object",
+					Properties: map[string]protocol.Property{
+						"finding_id": {
+							Type:        "string",
+							Description: "Unique finding ID",
+						},
+						"task_id": {
+							Type:        "string",
+							Description: "Task ID the finding relates to",
+						},
+						"severity": {
+							Type:        "string",
+							Description: "Finding severity (HIGH, MEDIUM, LOW)",
+							Enum:        []string{"HIGH", "MEDIUM", "LOW"},
+						},
+						"type": {
+							Type:        "string",
+							Description: "Finding type (SPEC_MISMATCH, MISSING_TEST, MISSING_EDGE_CASE, QUALITY_ISSUE)",
+						},
+						"phase": {
+							Type:        "string",
+							Description: "Audit phase (pre_execution, post_execution, post_merge)",
+						},
+						"classification": {
+							Type:        "string",
+							Description: "Finding classification (LOG_ONLY, REMEDIATE_WITH_TASK, REOPEN_TASK, REPLAN_REQUIRED)",
+						},
+						"evidence": {
+							Type:        "string",
+							Description: "Evidence supporting the finding",
+						},
+						"recommended_action": {
+							Type:        "string",
+							Description: "Recommended action to address the finding",
+						},
+						"spec_reference": {
+							Type:        "string",
+							Description: "Reference to the relevant spec section",
+						},
+					},
+					Required: []string{"finding_id", "task_id", "severity", "type", "evidence"},
+				},
+			},
+			handler: s.handleSubmitAuditFinding,
 		},
 	})
 }
@@ -707,10 +768,12 @@ func (s *Server) registerComplexOperations() {
 						"files_to_modify": {
 							Type:        "array",
 							Description: "List of files that will be modified",
+							Items:       &protocol.PropertyItems{Type: "string"},
 						},
 						"assumptions": {
 							Type:        "array",
 							Description: "Tagged assumptions (optional)",
+							Items:       &protocol.PropertyItems{Type: "string"},
 						},
 						"risks": {
 							Type:        "string",
@@ -723,6 +786,7 @@ func (s *Server) registerComplexOperations() {
 						"scope_extensions": {
 							Type:        "array",
 							Description: "Files outside task scope that must be modified, with justification. Each entry: {\"file\": \"path\", \"justification\": \"why\"}",
+							Items:       &protocol.PropertyItems{Type: "object"},
 						},
 						"impact": {
 							Type:        "string",
@@ -755,6 +819,7 @@ func (s *Server) registerComplexOperations() {
 						"output": {
 							Type:        "array",
 							Description: "Array of output entries, each with: desc (string), done_when (string), scope (string), spec_ref (string, optional), plan_ref (string, optional — path to the plan artifact), depends_on (array of index strings referencing other entries, optional)",
+							Items:       &protocol.PropertyItems{Type: "object"},
 						},
 					},
 					Required: []string{"task_id", "agent_id", "output"},
@@ -795,6 +860,34 @@ func (s *Server) registerComplexOperations() {
 			},
 			handler:     s.handleDeleteAgent,
 			roleChecker: operationChecker(s.resolver, s.pipelineLoadErr, "liza_delete_agent"),
+		},
+
+		// liza_exec tool
+		{
+			tool: protocol.Tool{
+				Name:        "liza_exec",
+				Description: "Execute a shell command in the project directory. Auditor role restricted to read-only commands.",
+				InputSchema: protocol.InputSchema{
+					Type: "object",
+					Properties: map[string]protocol.Property{
+						"command": {
+							Type:        "string",
+							Description: "Shell command to execute",
+						},
+						"cwd": {
+							Type:        "string",
+							Description: "Working directory (defaults to project root)",
+						},
+						"timeout_seconds": {
+							Type:        "number",
+							Description: "Command timeout in seconds (default: 30, max: 120)",
+							Default:     30,
+						},
+					},
+					Required: []string{"command"},
+				},
+			},
+			handler: s.handleExec,
 		},
 	})
 }

@@ -3,6 +3,7 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -58,7 +59,7 @@ func TestHandleGetTasks(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspace(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleGet(map[string]any{
 		"query": "tasks",
@@ -84,7 +85,7 @@ func TestHandleGetSpecificTask(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspace(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	// Query for specific task by ID (inspect command treats this as a task ID lookup)
 	result, err := server.handleGet(map[string]any{
@@ -173,7 +174,7 @@ func TestHandleStatus(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspace(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleStatus(map[string]any{})
 
@@ -196,7 +197,7 @@ func TestHandleValidate(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspace(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleValidate(map[string]any{})
 
@@ -219,7 +220,7 @@ func TestHandleVersion(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspace(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleVersion(map[string]any{})
 
@@ -242,7 +243,7 @@ func TestReadStateResource(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspace(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleResourceReadInternal("liza://state")
 
@@ -265,7 +266,7 @@ func TestReadTasksResource(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspace(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleResourceReadInternal("liza://tasks")
 
@@ -288,7 +289,7 @@ func TestReadAgentsResource(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspace(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleResourceReadInternal("liza://agents")
 
@@ -306,12 +307,93 @@ func TestReadAgentsResource(t *testing.T) {
 	}
 }
 
+// extractTextContent extracts the text from a tool result's content array
+func extractTextContent(result map[string]any) string {
+	contentArr, ok := result["content"].([]any)
+	if !ok || len(contentArr) == 0 {
+		return ""
+	}
+	first, ok := contentArr[0].(map[string]any)
+	if !ok {
+		return ""
+	}
+	text, _ := first["text"].(string)
+	return text
+}
+
+// TestHandleGetSlashQuery verifies liza_get with slash-style query like "tasks/task-1"
+func TestHandleGetSlashQuery(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
+
+	result, err := server.handleGet(map[string]any{
+		"query":  "tasks/task-1",
+		"format": "json",
+	})
+
+	if err != nil {
+		t.Fatalf("handleGet with slash query failed: %v", err)
+	}
+
+	content, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("Expected result to be map")
+	}
+
+	if content["content"] == nil {
+		t.Error("Expected content field in result")
+	}
+
+	// Verify it actually returned info about task-1
+	text := extractTextContent(content)
+	if !strings.Contains(text, "task-1") {
+		t.Errorf("Expected response to contain task-1, got: %s", text)
+	}
+}
+
+// TestHandleGetStateQuery verifies liza_get with "state" query
+func TestHandleGetStateQuery(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
+
+	result, err := server.handleGet(map[string]any{
+		"query":  "state",
+		"format": "json",
+	})
+
+	if err != nil {
+		t.Fatalf("handleGet with state query failed: %v", err)
+	}
+
+	content, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("Expected result to be map")
+	}
+
+	if content["content"] == nil {
+		t.Error("Expected content field in result")
+	}
+
+	// Verify it returns state containing tasks and agents
+	text := extractTextContent(content)
+	if !strings.Contains(text, "task-1") {
+		t.Errorf("Expected state to contain task-1, got: %s", text)
+	}
+	if !strings.Contains(text, "coder-1") {
+		t.Errorf("Expected state to contain coder-1, got: %s", text)
+	}
+}
+
 // TestHandleGetWithInvalidQuery verifies error handling for invalid queries
 func TestHandleGetWithInvalidQuery(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspace(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	_, err := server.handleGet(map[string]any{
 		"query": "nonexistent/resource",
@@ -409,7 +491,7 @@ func TestHandleAddTasks(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleAddTasks(map[string]any{
 		"tasks": []any{
@@ -468,7 +550,7 @@ func TestHandleAddTasksWithInvalidParams(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	// Missing required field in task
 	_, err := server.handleAddTasks(map[string]any{
@@ -694,7 +776,7 @@ func TestHandleClaimTask(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleClaimTask(map[string]any{
 		"task_id":  "task-1",
@@ -756,7 +838,7 @@ func TestHandleClaimTaskAlreadyClaimed(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	_, err = server.handleClaimTask(map[string]any{
 		"task_id":  "task-1",
@@ -824,7 +906,7 @@ func TestHandleSubmitForReview(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleSubmitForReview(map[string]any{
 		"task_id":    taskID,
@@ -915,7 +997,7 @@ func TestHandleSubmitForReviewCommitMismatch(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	_, err = server.handleSubmitForReview(map[string]any{
 		"task_id":    taskID,
@@ -966,7 +1048,7 @@ func TestHandleHandoff(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleHandoff(map[string]any{
 		"task_id":     "task-1",
@@ -1134,7 +1216,7 @@ func TestHandleSubmitVerdict(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleSubmitVerdict(map[string]any{
 		"task_id":  "task-1",
@@ -1195,7 +1277,7 @@ func TestHandleReleaseClaim(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleReleaseClaim(map[string]any{
 		"task_id":  "task-1",
@@ -1355,7 +1437,7 @@ func TestHandleSupersede(t *testing.T) {
 		t.Fatalf("Failed to add replacement task: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleSupersede(map[string]any{
 		"task_id":         "task-1",
@@ -1552,7 +1634,7 @@ func TestMutationsLoggedCorrectly(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	// Perform an add task operation
 	_, err := server.handleAddTasks(map[string]any{
@@ -1609,7 +1691,7 @@ func TestHandleWtCreate(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleWtCreate(map[string]any{
 		"task_id":  "task-1",
@@ -1672,7 +1754,7 @@ func TestHandleWtCreateFresh(t *testing.T) {
 		t.Fatalf("Failed to create old file: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleWtCreate(map[string]any{
 		"task_id":  "task-1",
@@ -1724,7 +1806,7 @@ func TestHandleWtDelete(t *testing.T) {
 		t.Fatalf("Failed to create worktree: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleWtDelete(map[string]any{
 		"task_id":  "task-1",
@@ -1781,7 +1863,7 @@ func TestHandleWtCreateRequiresClaimed(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	// Try to create worktree for READY task
 	_, err := server.handleWtCreate(map[string]any{
@@ -1803,7 +1885,7 @@ func TestHandleAnalyze(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleAnalyze(map[string]any{"agent_id": "orchestrator-1"})
 
@@ -1827,7 +1909,7 @@ func TestHandleUpdateSprintMetrics(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleUpdateSprintMetrics(map[string]any{"agent_id": "orchestrator-1"})
 
@@ -1882,7 +1964,7 @@ func TestHandleClearStaleReviews(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleClearStaleReviews(map[string]any{"agent_id": "orchestrator-1"})
 
@@ -1934,7 +2016,7 @@ func TestHandleDeleteAgent(t *testing.T) {
 		t.Fatalf("Failed to add inactive agent: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleDeleteAgent(map[string]any{
 		"target_agent_id": "inactive-agent",
@@ -1973,7 +2055,7 @@ func TestHandleDeleteAgentWithMissingParams(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	// Try to delete agent without agent_id (caller) — goes through middleware
 	handler := server.handlers["liza_delete_agent"]
@@ -1997,7 +2079,7 @@ func TestHandleSprintCheckpoint(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleSprintCheckpoint(map[string]any{
 		"agent_id": "orchestrator-1",
@@ -2080,7 +2162,7 @@ func TestHandleWriteCheckpoint(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleWriteCheckpoint(map[string]any{
 		"task_id":         "task-1",
@@ -2141,7 +2223,7 @@ func TestHandleWriteCheckpointWithTDDWaiver(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	result, err := server.handleWriteCheckpoint(map[string]any{
 		"task_id":          "task-1",
@@ -2423,7 +2505,7 @@ func TestHandleSubmitForReviewWithoutCheckpoint(t *testing.T) {
 		t.Fatalf("Failed to modify state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	_, err = server.handleSubmitForReview(map[string]any{
 		"task_id":    "task-1",
@@ -2448,7 +2530,7 @@ func TestHandleRoleEnforcement(t *testing.T) {
 	projectRoot, cleanup := setupTestWorkspaceWithGit(t)
 	defer cleanup()
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 
 	tests := []struct {
 		name     string
@@ -2632,5 +2714,264 @@ func TestHandleRoleEnforcement(t *testing.T) {
 				t.Errorf("Expected error containing %q, got: %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+// --- liza_exec tests ---
+
+func TestHandleExecBasicCommand(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
+
+	var command string
+	if runtime.GOOS == "windows" {
+		command = "echo hello"
+	} else {
+		command = "echo hello"
+	}
+
+	result, err := server.handleExec(map[string]any{
+		"command": command,
+	})
+	if err != nil {
+		t.Fatalf("handleExec failed: %v", err)
+	}
+
+	content, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("Expected result to be map")
+	}
+	items, ok := content["content"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatal("Expected content array with at least one item")
+	}
+	text := items[0].(map[string]any)["text"].(string)
+
+	if !strings.Contains(text, "Exit code: 0") {
+		t.Errorf("Expected Exit code: 0, got: %s", text)
+	}
+	if !strings.Contains(text, "hello") {
+		t.Errorf("Expected output to contain 'hello', got: %s", text)
+	}
+}
+
+func TestHandleExecCustomCwd(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	// Create a subdirectory within the project
+	subDir := filepath.Join(projectRoot, "subdir")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdir: %v", err)
+	}
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
+
+	// Create a marker file so we can verify the cwd was set correctly
+	markerPath := filepath.Join(subDir, "marker.txt")
+	if err := os.WriteFile(markerPath, []byte("found"), 0644); err != nil {
+		t.Fatalf("Failed to write marker file: %v", err)
+	}
+
+	var command string
+	if runtime.GOOS == "windows" {
+		// type is the Windows equivalent of cat
+		command = "type marker.txt"
+	} else {
+		command = "cat marker.txt"
+	}
+
+	result, err := server.handleExec(map[string]any{
+		"command": command,
+		"cwd":     subDir,
+	})
+	if err != nil {
+		t.Fatalf("handleExec failed: %v", err)
+	}
+
+	text := extractExecText(t, result)
+
+	if !strings.Contains(text, "Exit code: 0") {
+		t.Errorf("Expected Exit code: 0, got: %s", text)
+	}
+	if !strings.Contains(text, "found") {
+		t.Errorf("Expected output to contain 'found', got: %s", text)
+	}
+}
+
+func TestHandleExecRejectsPathTraversal(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
+
+	// Try to use a cwd outside the project root
+	parentDir := filepath.Dir(projectRoot)
+
+	_, err := server.handleExec(map[string]any{
+		"command": "echo pwned",
+		"cwd":     parentDir,
+	})
+	if err == nil {
+		t.Fatal("Expected error for cwd outside project root")
+	}
+	if !strings.Contains(err.Error(), "outside project root") {
+		t.Errorf("Expected 'outside project root' error, got: %v", err)
+	}
+}
+
+func TestHandleExecNonZeroExitCode(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
+
+	var command string
+	if runtime.GOOS == "windows" {
+		command = "exit 1"
+	} else {
+		command = "exit 1"
+	}
+
+	result, err := server.handleExec(map[string]any{
+		"command": command,
+	})
+	// Non-zero exit code should NOT return an error — it returns the exit code in the text
+	if err != nil {
+		t.Fatalf("handleExec should not error on non-zero exit: %v", err)
+	}
+
+	text := extractExecText(t, result)
+	if !strings.Contains(text, "Exit code: 1") {
+		t.Errorf("Expected Exit code: 1, got: %s", text)
+	}
+}
+
+func TestHandleExecMissingCommand(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
+
+	_, err := server.handleExec(map[string]any{})
+	if err == nil {
+		t.Fatal("Expected error for missing command")
+	}
+	if !strings.Contains(err.Error(), "command parameter required") {
+		t.Errorf("Expected 'command parameter required' error, got: %v", err)
+	}
+}
+
+func TestHandleExecTimeout(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
+
+	var command string
+	if runtime.GOOS == "windows" {
+		// Start-Sleep is a PowerShell cmdlet that reliably blocks
+		command = "Start-Sleep -Seconds 30"
+	} else {
+		command = "sleep 30"
+	}
+
+	start := time.Now()
+	_, err := server.handleExec(map[string]any{
+		"command":         command,
+		"timeout_seconds": float64(2),
+	})
+	elapsed := time.Since(start)
+
+	// Should fail due to timeout (killed process exit code != 0)
+	// The error might be from context cancellation or exit error
+	if err == nil {
+		t.Log("Command completed without error (may have been killed)")
+	}
+
+	// Verify it didn't run for the full 30 seconds
+	if elapsed > 10*time.Second {
+		t.Errorf("Timeout didn't work — elapsed: %v (expected < 10s)", elapsed)
+	}
+}
+
+func TestHandleExecRelativeCwd(t *testing.T) {
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	// Create a worktree-like directory
+	wtDir := filepath.Join(projectRoot, ".worktrees", "test-task")
+	if err := os.MkdirAll(wtDir, 0755); err != nil {
+		t.Fatalf("Failed to create worktree dir: %v", err)
+	}
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
+
+	var command string
+	if runtime.GOOS == "windows" {
+		command = "cd"
+	} else {
+		command = "pwd"
+	}
+
+	result, err := server.handleExec(map[string]any{
+		"command": command,
+		"cwd":     wtDir,
+	})
+	if err != nil {
+		t.Fatalf("handleExec failed: %v", err)
+	}
+
+	text := extractExecText(t, result)
+	if !strings.Contains(text, "Exit code: 0") {
+		t.Errorf("Expected Exit code: 0, got: %s", text)
+	}
+}
+
+// extractExecText is a helper to extract the text content from a liza_exec response.
+func extractExecText(t *testing.T, result any) string {
+	t.Helper()
+	content, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("Expected result to be map")
+	}
+	items, ok := content["content"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatal("Expected content array with at least one item")
+	}
+	return items[0].(map[string]any)["text"].(string)
+}
+
+func TestHandleExecSetsPathextWhenMissing(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("PATHEXT test only applies to Windows")
+	}
+
+	projectRoot, cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
+
+	// Save original PATHEXT, then clear it to simulate a stripped environment
+	origPathext := os.Getenv("PATHEXT")
+	os.Setenv("PATHEXT", ".CPL") // stripped env — no .EXE
+	defer os.Setenv("PATHEXT", origPathext)
+
+	// Ask the subprocess to echo PATHEXT — the handler should inject a valid one
+	result, err := server.handleExec(map[string]any{
+		"command": "$env:PATHEXT",
+	})
+	if err != nil {
+		t.Fatalf("handleExec failed: %v", err)
+	}
+
+	text := extractExecText(t, result)
+	if !strings.Contains(text, "Exit code: 0") {
+		t.Fatalf("Expected Exit code: 0, got: %s", text)
+	}
+	if !strings.Contains(strings.ToUpper(text), ".EXE") {
+		t.Errorf("Expected PATHEXT to include .EXE in subprocess, got: %s", text)
 	}
 }

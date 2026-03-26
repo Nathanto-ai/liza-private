@@ -10,6 +10,7 @@ import (
 
 	"github.com/liza-mas/liza/internal/embedded"
 	"github.com/liza-mas/liza/internal/mcp"
+	"github.com/liza-mas/liza/internal/roles"
 )
 
 func main() {
@@ -25,10 +26,20 @@ func main() {
 
 	logPath := filepath.Join(absProjectRoot, ".liza", "log.yaml")
 
+	// Determine agent role from environment variable (set by supervisor).
+	// Empty string means no filtering — all tools exposed (backwards compat).
+	role := os.Getenv("LIZA_ROLE")
+	if role != "" && !roles.IsValidRuntime(role) {
+		fmt.Fprintf(os.Stderr, "Warning: unknown LIZA_ROLE %q, ignoring\n", role)
+		role = ""
+	}
+
+	// Set MCP version from build-time embedded variables
 	mcp.Version = embedded.Version
 	mcp.BuildCommit = embedded.GitCommit
 
-	server := mcp.NewServer(absProjectRoot, logPath)
+	// Create MCP server with optional role-based tool filtering
+	server := mcp.NewServer(absProjectRoot, logPath, role)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)

@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -10,6 +11,8 @@ import (
 // isTestFile returns true if the filename matches known test file patterns
 // across Go, Python, JS/TS, Shell, Ruby, Java, Kotlin, and Rust.
 func isTestFile(name string) bool {
+	// Normalize to forward slashes for cross-platform consistency
+	name = filepath.ToSlash(name)
 	base := filepath.Base(name)
 
 	// Go: *_test.go
@@ -28,8 +31,7 @@ func isTestFile(name string) bool {
 			return true
 		}
 		if strings.HasSuffix(base, ext) {
-			slashed := filepath.ToSlash(name)
-			if strings.Contains(slashed, "/__tests__/") || strings.HasPrefix(slashed, "__tests__/") {
+			if strings.Contains(name, "/__tests__/") || strings.HasPrefix(name, "__tests__/") {
 				return true
 			}
 		}
@@ -48,16 +50,30 @@ func isTestFile(name string) bool {
 		return true
 	}
 
-	// Java: *Test.java, Test*.java, *Tests.java
-	if strings.HasSuffix(base, "Test.java") || strings.HasSuffix(base, "Tests.java") ||
-		(strings.HasPrefix(base, "Test") && strings.HasSuffix(base, ".java")) {
-		return true
+	// Java: *Test.java, *Tests.java — but exclude utility classes like TestUtils, TestConfig
+	if strings.HasSuffix(base, ".java") {
+		noExt := strings.TrimSuffix(base, ".java")
+		if strings.HasSuffix(noExt, "Test") || strings.HasSuffix(noExt, "Tests") {
+			if !isTestUtilityClass(noExt) {
+				return true
+			}
+		}
+		if strings.HasPrefix(base, "Test") && !isTestUtilityClass(noExt) {
+			return true
+		}
 	}
 
-	// Kotlin: *Test.kt, Test*.kt, *Tests.kt
-	if strings.HasSuffix(base, "Test.kt") || strings.HasSuffix(base, "Tests.kt") ||
-		(strings.HasPrefix(base, "Test") && strings.HasSuffix(base, ".kt")) {
-		return true
+	// Kotlin: *Test.kt, *Tests.kt — same exclusions
+	if strings.HasSuffix(base, ".kt") {
+		noExt := strings.TrimSuffix(base, ".kt")
+		if strings.HasSuffix(noExt, "Test") || strings.HasSuffix(noExt, "Tests") {
+			if !isTestUtilityClass(noExt) {
+				return true
+			}
+		}
+		if strings.HasPrefix(base, "Test") && !isTestUtilityClass(noExt) {
+			return true
+		}
 	}
 
 	// Rust: *_test.rs, or any .rs file under a tests/ directory
@@ -65,12 +81,23 @@ func isTestFile(name string) bool {
 		return true
 	}
 	if strings.HasSuffix(base, ".rs") {
-		slashed := filepath.ToSlash(name)
-		if strings.Contains(slashed, "/tests/") || strings.HasPrefix(slashed, "tests/") {
+		if strings.Contains(name, "/tests/") || strings.HasPrefix(name, "tests/") {
 			return true
 		}
 	}
 
+	return false
+}
+
+// isTestUtilityClass returns true for Java/Kotlin class names that look like
+// test utilities rather than actual test classes (e.g. TestUtils, TestConfig).
+func isTestUtilityClass(className string) bool {
+	utilitySuffixes := []string{"Utils", "Util", "Helpers", "Helper", "Config", "Configuration", "Factory", "Builder", "Fixture", "Fixtures", "Data", "Base"}
+	for _, suffix := range utilitySuffixes {
+		if strings.HasSuffix(className, suffix) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -82,10 +109,13 @@ func HasTestFiles(g *git.Git, taskID, baseCommit string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	slog.Debug("HasTestFiles: diff files", "task_id", taskID, "base_commit", baseCommit, "file_count", len(files))
 	for _, f := range files {
 		if isTestFile(f) {
+			slog.Debug("HasTestFiles: matched test file", "task_id", taskID, "file", f)
 			return true, nil
 		}
 	}
+	slog.Debug("HasTestFiles: no test files found", "task_id", taskID, "files", files)
 	return false, nil
 }

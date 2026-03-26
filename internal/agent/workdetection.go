@@ -11,10 +11,13 @@ type OrchestratorWakeTrigger string
 const (
 	WakeTriggerInitialPlanning     OrchestratorWakeTrigger = "INITIAL_PLANNING"
 	WakeTriggerBlocked             OrchestratorWakeTrigger = "BLOCKED_TASKS"
+	WakeTriggerIntegrationFailed   OrchestratorWakeTrigger = "INTEGRATION_FAILED"
 	WakeTriggerHypothesisExhausted OrchestratorWakeTrigger = "HYPOTHESIS_EXHAUSTED"
 	WakeTriggerImmediateDiscovery  OrchestratorWakeTrigger = "IMMEDIATE_DISCOVERY"
 	WakeTriggerPlanningComplete    OrchestratorWakeTrigger = "PLANNING_COMPLETE"
 	WakeTriggerSprintComplete      OrchestratorWakeTrigger = "SPRINT_COMPLETE"
+	WakeTriggerReplanRequired      OrchestratorWakeTrigger = "AUDIT_REPLAN_REQUIRED"
+	WakeTriggerRemediationNeeded   OrchestratorWakeTrigger = "AUDIT_REMEDIATION_NEEDED"
 	WakeTriggerNone                OrchestratorWakeTrigger = "NONE"
 )
 
@@ -22,6 +25,18 @@ const (
 type OrchestratorWakeResult struct {
 	Trigger OrchestratorWakeTrigger
 	Count   int
+}
+
+// PlannerWakeTrigger is an alias for backward compatibility with private-main code.
+type PlannerWakeTrigger = OrchestratorWakeTrigger
+
+// PlannerWakeResult is an alias for backward compatibility with private-main code.
+type PlannerWakeResult = OrchestratorWakeResult
+
+// DetectPlannerWakeTriggers is a convenience wrapper around DetectOrchestratorWakeTriggers
+// without pipeline-specific parameters.
+func DetectPlannerWakeTriggers(state *models.State) PlannerWakeResult {
+	return DetectOrchestratorWakeTriggers(state, nil, nil)
 }
 
 type orchestratorWakeTriggerSpec struct {
@@ -58,6 +73,16 @@ var orchestratorWakeTriggerSpecs = []orchestratorWakeTriggerSpec{
 		Description: "Immediate discoveries need orchestrator triage.",
 		Count:       countImmediateDiscoveries,
 	},
+	{
+		Trigger:     WakeTriggerReplanRequired,
+		Description: "Audit findings with REPLAN_REQUIRED classification need planner intervention.",
+		Count:       countUnresolvedReplanFindings,
+	},
+	{
+		Trigger:     WakeTriggerRemediationNeeded,
+		Description: "Audit findings with REMEDIATE_WITH_TASK classification need remediation tasks.",
+		Count:       countUnresolvedRemediationFindings,
+	},
 	// WakeTriggerSprintComplete is handled separately in DetectOrchestratorWakeTriggers
 	// because it requires pipeline-aware terminal state checking.
 }
@@ -71,10 +96,13 @@ var orchestratorWakeTriggerSpecs = []orchestratorWakeTriggerSpec{
 // Priority order:
 // 1. No tasks (initial planning)
 // 2. Blocked tasks
-// 3. Hypothesis exhausted (2+ failed_by)
-// 4. Immediate discoveries (not yet converted to tasks)
-// 5. Planning complete (all planned tasks terminal, merged tasks have output[])
-// 6. Sprint complete (all planned tasks terminal)
+// 3. Integration failed
+// 4. Hypothesis exhausted (2+ failed_by)
+// 5. Immediate discoveries (not yet converted to tasks)
+// 6. Audit REPLAN_REQUIRED (unresolved findings requiring plan changes)
+// 7. Audit REMEDIATE_WITH_TASK (findings needing new remediation tasks)
+// 8. Planning complete (all planned tasks terminal, merged tasks have output[])
+// 9. Sprint complete (all planned tasks terminal)
 func DetectOrchestratorWakeTriggers(state *models.State, pipelineTerminals []models.TaskStatus, planningPairs map[string]bool) OrchestratorWakeResult {
 	for _, triggerSpec := range orchestratorWakeTriggerSpecs {
 		if count := triggerSpec.Count(state); count > 0 {
@@ -188,7 +216,7 @@ func isTaskActionableSinceAssessment(task *models.Task, state *models.State) boo
 func countHypothesisExhaustedTasks(state *models.State) int {
 	count := 0
 	for i := range state.Tasks {
-		if len(state.Tasks[i].FailedBy) >= 2 && !state.Tasks[i].Status.IsTerminal() &&
+		if len(state.Tasks[i].FailedBy) >= 2 && !state.Tasks[i].Status.IsComplete() &&
 			isTaskActionableSinceAssessment(&state.Tasks[i], state) {
 			count++
 		}
@@ -214,6 +242,44 @@ func countMergedPlanningTasksWithOutput(state *models.State, planningPairs map[s
 	for _, taskID := range state.Sprint.Scope.Planned {
 		task := state.FindTask(taskID)
 		if ops.IsPlanningCompleteEligible(task, planningPairs, state) {
+			count++
+		}
+	}
+	return count
+}
+
+// countUnresolvedReplanFindings counts audit findings classified as REPLAN_REQUIRED
+// that have not been resolved and have no linked remediation task.
+func countUnresolvedReplanFindings(state *models.State) int {
+	taskOrigins := make(map[string]bool)
+	for _, t := range state.Tasks {
+		if t.OriginFindingID != "" {
+			taskOrigins[t.OriginFindingID] = true
+		}
+	}
+
+	count := 0
+	for _, f := range state.AuditFindings {
+		if f.Classification == "REPLAN_REQUIRED" && !f.Resolved && f.LinkedTaskID == "" && !taskOrigins[f.ID] {
+			count++
+		}
+	}
+	return count
+}
+
+// countUnresolvedRemediationFindings counts audit findings classified as
+// REMEDIATE_WITH_TASK that have no linked remediation task yet.
+func countUnresolvedRemediationFindings(state *models.State) int {
+	taskOrigins := make(map[string]bool)
+	for _, t := range state.Tasks {
+		if t.OriginFindingID != "" {
+			taskOrigins[t.OriginFindingID] = true
+		}
+	}
+
+	count := 0
+	for _, f := range state.AuditFindings {
+		if f.Classification == "REMEDIATE_WITH_TASK" && !f.Resolved && f.LinkedTaskID == "" && !taskOrigins[f.ID] {
 			count++
 		}
 	}

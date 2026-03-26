@@ -293,7 +293,7 @@ func TestRestoreSyncedFiles(t *testing.T) {
 		}
 
 		content, _ = os.ReadFile(modFile)
-		if string(content) != "original\n" {
+		if normalizeLineEndings(string(content)) != "original\n" {
 			t.Errorf("expected original content after restore, got %q", content)
 		}
 	})
@@ -373,7 +373,7 @@ func TestRestoreSyncedFiles(t *testing.T) {
 		}
 
 		content, _ := os.ReadFile(subFile)
-		if string(content) != "package main\n" {
+		if normalizeLineEndings(string(content)) != "package main\n" {
 			t.Errorf("expected original content after restore, got %q", content)
 		}
 	})
@@ -430,4 +430,8 @@ func TestRestoreSyncedFiles(t *testing.T) {
 			t.Fatalf("RestoreSyncedFiles with empty diff should succeed: %v", err)
 		}
 	})
+}
+
+func normalizeLineEndings(s string) string {
+	return strings.ReplaceAll(s, "\r\n", "\n")
 }

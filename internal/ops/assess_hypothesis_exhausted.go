@@ -47,7 +47,7 @@ func AssessHypothesisExhausted(projectRoot, taskID, note, agentID string) (*Asse
 		if len(task.FailedBy) < 2 {
 			return &PreconditionError{Reason: fmt.Sprintf("task must have 2+ entries in failed_by to assess as hypothesis-exhausted, has %d", len(task.FailedBy))}
 		}
-		if task.Status.IsTerminal() {
+		if task.Status.IsComplete() {
 			return &PreconditionError{Reason: fmt.Sprintf("task must not be in terminal status, current status: %s", task.Status)}
 		}
 

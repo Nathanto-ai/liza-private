@@ -3,6 +3,7 @@ package ops
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -444,6 +445,9 @@ func TestDeleteTask_WorktreePreserved(t *testing.T) {
 }
 
 func TestDeleteTask_CommitFailureDoesNotDeleteWorktreeOrBranch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix directory permission bits via os.Chmod")
+	}
 	tmpDir := t.TempDir()
 	testhelpers.SetupTestGitRepo(t, tmpDir)
 	stateFile, _ := testhelpers.SetupLizaDir(t, tmpDir)

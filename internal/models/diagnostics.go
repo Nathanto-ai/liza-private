@@ -43,7 +43,7 @@ func GetCoderWorkDiagnostics(state *State, pr PipelineResolver) string {
 
 	mergedIDs := make(map[string]bool)
 	for _, task := range state.Tasks {
-		if task.Status == TaskStatusMerged {
+		if task.Status == TaskStatusMerged || task.Status == TaskStatusSuperseded {
 			mergedIDs[task.ID] = true
 		}
 	}
@@ -216,6 +216,32 @@ func GetReviewerWorkDiagnostics(state *State, pr PipelineResolver) string {
 	}
 
 	parts := []string{"No reviewable tasks"}
+	blockedReadyForReview := 0
+	for _, task := range state.Tasks {
+		if task.Status != TaskStatusReadyForReview {
+			continue
+		}
+		blocked := false
+		for _, depID := range task.DependsOn {
+			foundSatisfied := false
+			for _, dep := range state.Tasks {
+				if dep.ID == depID && (dep.Status == TaskStatusMerged || dep.Status == TaskStatusSuperseded) {
+					foundSatisfied = true
+					break
+				}
+			}
+			if !foundSatisfied {
+				blocked = true
+				break
+			}
+		}
+		if blocked {
+			blockedReadyForReview++
+		}
+	}
+	if blockedReadyForReview > 0 {
+		parts = append(parts, fmt.Sprintf("%d READY_FOR_REVIEW but blocked by dependencies", blockedReadyForReview))
+	}
 	if expiredLeases > 0 {
 		parts = append(parts, fmt.Sprintf("%d with stale leases (pending reclamation)", expiredLeases))
 	}

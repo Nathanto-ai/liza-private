@@ -571,3 +571,138 @@ func TestWtMergeCommand_PreventsDuplicateFailedBy(t *testing.T) {
 		t.Errorf("status = %v, want %v", updatedTask.Status, models.TaskStatusIntegrationFailed)
 	}
 }
+
+// TestWtMergeCommand_SyncsWorkingTree is a regression test for the working tree
+// desync issue: after a plumbing-only merge, the main working tree was not
+// updated when the integration branch was checked out, leaving stale files.
+func TestWtMergeCommand_SyncsWorkingTree(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	testhelpers.SetupTestGitRepo(t, tmpDir)
+	stateFile, _ := testhelpers.SetupLizaDir(t, tmpDir)
+
+	// Create and checkout integration branch
+	cmd := exec.Command("git", "-C", tmpDir, "checkout", "-b", "integration")
+	output, err := cmd.CombinedOutput()
+	if err != nil && !strings.Contains(string(output), "already exists") {
+		t.Fatalf("Failed to create integration branch: %v\nOutput: %s", err, output)
+	}
+	if strings.Contains(string(output), "already exists") {
+		cmd2 := exec.Command("git", "-C", tmpDir, "checkout", "integration")
+		if err := cmd2.Run(); err != nil {
+			t.Fatalf("Failed to checkout integration branch: %v", err)
+		}
+	}
+
+	// Setup state
+	now := time.Now().UTC()
+	initialState := testhelpers.CreateValidState()
+	initialState.Config.IntegrationBranch = "integration"
+
+	taskID := "sync-test"
+	agentID := "coder-1"
+	worktreePath := filepath.Join(".worktrees", taskID)
+	baseCommit := "base123"
+	reviewCommit := "review456"
+
+	task := models.Task{
+		ID:           taskID,
+		Description:  "Test working tree sync",
+		Status:       models.TaskStatusApproved,
+		Priority:     1,
+		Created:      now,
+		SpecRef:      "README.md",
+		DoneWhen:     "Done",
+		Scope:        "Test",
+		RolePair:     "coding-pair",
+		Worktree:     &worktreePath,
+		AssignedTo:   &agentID,
+		BaseCommit:   &baseCommit,
+		ReviewCommit: &reviewCommit,
+		ApprovedBy:   testhelpers.StringPtr("code-reviewer-1"),
+		History:      []models.TaskHistoryEntry{},
+	}
+
+	initialState.Tasks = append(initialState.Tasks, task)
+	bb := testhelpers.WriteInitialState(t, stateFile, initialState)
+
+	// Create worktree and make a commit with a new file
+	wtDir := filepath.Join(tmpDir, ".worktrees", taskID)
+	if err := os.MkdirAll(filepath.Dir(wtDir), 0755); err != nil {
+		t.Fatalf("Failed to create worktrees directory: %v", err)
+	}
+
+	cmd = exec.Command("git", "-C", tmpDir, "worktree", "add", wtDir, "integration", "-b", "task/"+taskID)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create worktree: %v", err)
+	}
+
+	newFile := filepath.Join(wtDir, "new-file-from-task.txt")
+	if err := os.WriteFile(newFile, []byte("new content from task"), 0644); err != nil {
+		t.Fatalf("Failed to write new file: %v", err)
+	}
+
+	cmd = exec.Command("git", "-C", wtDir, "add", ".")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to git add: %v", err)
+	}
+
+	cmd = exec.Command("git", "-C", wtDir, "commit", "-m", "Add new file from "+taskID)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to git commit: %v", err)
+	}
+
+	// Get worktree commit and update review_commit
+	cmd = exec.Command("git", "-C", wtDir, "rev-parse", "HEAD")
+	shaOutput, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get commit SHA: %v", err)
+	}
+	wtCommit := strings.TrimSpace(string(shaOutput))
+
+	err = bb.Modify(func(s *models.State) error {
+		for i := range s.Tasks {
+			if s.Tasks[i].ID == taskID {
+				s.Tasks[i].ReviewCommit = &wtCommit
+				return nil
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Failed to update review_commit: %v", err)
+	}
+
+	// Ensure integration branch is still checked out in the main worktree
+	cmd = exec.Command("git", "-C", tmpDir, "checkout", "integration")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to checkout integration: %v", err)
+	}
+
+	// Verify the new file does NOT exist in main worktree before merge
+	mainFile := filepath.Join(tmpDir, "new-file-from-task.txt")
+	if _, err := os.Stat(mainFile); !os.IsNotExist(err) {
+		t.Fatal("File should not exist in main worktree before merge")
+	}
+
+	// Run merge
+	err = WtMergeCommand(tmpDir, taskID, agentID)
+	if err != nil {
+		t.Fatalf("Merge failed: %v", err)
+	}
+
+	// REGRESSION: Verify the new file now EXISTS in main worktree after merge
+	// Before the fix, the plumbing merge updated the ref but not the working tree
+	if _, err := os.Stat(mainFile); os.IsNotExist(err) {
+		t.Error("REGRESSION: new file not present in main worktree after merge — working tree was not synced")
+	}
+
+	// Also verify file content
+	content, err := os.ReadFile(mainFile)
+	if err != nil {
+		t.Fatalf("Failed to read merged file: %v", err)
+	}
+	if string(content) != "new content from task" {
+		t.Errorf("File content = %q, want %q", string(content), "new content from task")
+	}
+}

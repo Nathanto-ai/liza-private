@@ -1,14 +1,33 @@
 {{- define "wake_blocked_tasks" -}}
 Tasks are BLOCKED. Analyze and resolve immediately:
 
+{{- if .Tasks}}
+=== BLOCKED TASK DETAILS ===
+{{- range .Tasks}}
+TASK: {{.ID}}
+  Description: {{.Description}}
+  Blocked Reason: {{.BlockedReason}}
+  {{- if .Worktree}}
+  Worktree: {{.Worktree}}
+  {{- end}}
+  {{- if .AssignedTo}}
+  Last Assigned: {{.AssignedTo}}
+  {{- end}}
+{{end}}
+{{- end}}
+
 1. Read blocked tasks from blackboard — understand blocker_reason
+1b. VERIFY the blocker independently: Run liza_exec with a simple command (e.g., "echo hello" or "git status") in the TASK'S WORKTREE to confirm infrastructure works. If simple commands succeed, the blocker is likely in the agent's own generated code, not infrastructure.
 2. Determine if blocker is:
    - Missing dependency → create prerequisite task (execute liza_add_tasks tool NOW)
    - Spec ambiguity → clarify spec, then supersede with corrected task
    - External dependency → document, possibly supersede task
    - Wrong approach → supersede task, create alternative (execute tools NOW)
+   - Agent's own code bug (e.g., deadlock, infinite loop) → supersede task, create replacement with bug-fix focus
+   - If no MCP tool exists for the unblock action → fallback state edit + liza_validate
 3. For each blocked task, decide action:
-   - To supersede (create clean replacement):
+   - To unblock: Supersede the blocked task and create a replacement with adjusted requirements via liza_add_task, then liza_supersede_task
+   - To supersede: First create replacement tasks, then use liza_supersede_task tool
    Example supersede workflow:
    a. Re-read the task via liza_get tasks/<task-id> to confirm it is still BLOCKED.
       If status changed (e.g., task was claimed), skip — the task is being actively worked.
@@ -21,6 +40,12 @@ Tasks are BLOCKED. Analyze and resolve immediately:
      Execute tool: liza_assess_blocked with {"task_id": "<task-id>", "note": "<why it cannot be resolved now>"}
      This prevents re-waking for the same unresolvable block. The task will trigger again only when new information arrives (dependency changes, human notes).
 5. Execute all state-modifying tools in this session. Do NOT defer.
+
+SCOPE CONTROL:
+- Create at most 2 new tasks per wake cycle — if more are needed, prioritize and defer the rest
+- If a blocker is environmental (missing toolchain, platform limitation), adjust the original task's
+  acceptance criteria via supersede rather than creating new infrastructure tasks
+- Focus on unblocking application features, not fixing the build environment
 
 Do NOT call liza_sprint_checkpoint. If you cannot resolve a blocker, assess it and exit. Other tasks must continue uninterrupted.
 {{- end -}}

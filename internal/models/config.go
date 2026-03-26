@@ -85,6 +85,19 @@ const (
 	DefaultReviewerMaxWait          = 7200 // 2 hours
 	DefaultExit42MaxBackoffSec      = 60
 	DefaultExit42RestartLimit       = 5
+
+	DefaultPlannerPollInterval = 60
+	DefaultPlannerMaxWait      = 1800 // 30 minutes
+	DefaultAuditorPollInterval = 60
+	DefaultAuditorMaxWait      = 1800 // 30 minutes
+
+	DefaultMaxIterationsWithoutProgress = 5
+	DefaultIdleBackoffBaseSec           = 30
+	DefaultIdleBackoffMaxSec            = 600 // 10 minutes
+	DefaultMCPInactivityTimeoutSec      = 600 // 10 minutes
+
+	// DefaultCopilotModel is the default model for the Copilot CLI backend.
+	DefaultCopilotModel = "gpt-5-mini"
 )
 
 // Bounds for heartbeat interval validation.
@@ -116,17 +129,38 @@ type Config struct {
 	// OrchestratorMaxWait is the maximum time an orchestrator agent will wait for work
 	// before exiting. When 0, defaults to DefaultOrchestratorMaxWait (2 hours).
 	// The orchestrator will exit earlier if STOPPED mode is detected or context is cancelled.
-	OrchestratorMaxWait     int            `yaml:"orchestrator_max_wait"`
-	ReviewerPollInterval    int            `yaml:"reviewer_poll_interval"`
-	ReviewerMaxWait         int            `yaml:"reviewer_max_wait"`
-	Exit42RestartThreshold  int            `yaml:"exit42_restart_threshold,omitempty"`
-	Exit42MaxBackoffSeconds int            `yaml:"exit42_max_backoff_seconds,omitempty"`
-	IntegrationBranch       string         `yaml:"integration_branch"`
-	EscalationWebhook       *string        `yaml:"escalation_webhook,omitempty"`
-	Mode                    SystemMode     `yaml:"mode,omitempty"`
-	ModeChangedAt           *time.Time     `yaml:"mode_changed_at,omitempty"`
-	ModeChangedBy           *string        `yaml:"mode_changed_by,omitempty"`
-	DiagnosticLogging       bool           `yaml:"diagnostic_logging,omitempty"`
-	PostWorktreeCmd         *string        `yaml:"post_worktree_cmd,omitempty"`
-	Extra                   map[string]any `yaml:",inline"`
+	OrchestratorMaxWait          int            `yaml:"orchestrator_max_wait"`
+	ReviewerPollInterval         int            `yaml:"reviewer_poll_interval"`
+	ReviewerMaxWait              int            `yaml:"reviewer_max_wait"`
+	Exit42RestartThreshold       int            `yaml:"exit42_restart_threshold,omitempty"`
+	Exit42MaxBackoffSeconds      int            `yaml:"exit42_max_backoff_seconds,omitempty"`
+	IntegrationBranch            string         `yaml:"integration_branch"`
+	EscalationWebhook            *string        `yaml:"escalation_webhook,omitempty"`
+	Mode                         SystemMode     `yaml:"mode,omitempty"`
+	ModeChangedAt                *time.Time     `yaml:"mode_changed_at,omitempty"`
+	ModeChangedBy                *string        `yaml:"mode_changed_by,omitempty"`
+	DiagnosticLogging            bool           `yaml:"diagnostic_logging,omitempty"`
+	PostWorktreeCmd              *string        `yaml:"post_worktree_cmd,omitempty"`
+	MaxTasksPerRun               int            `yaml:"max_tasks_per_run,omitempty"`
+	MaxTasksGenerated            int            `yaml:"max_tasks_generated,omitempty"`
+	MaxAgentIterations           int            `yaml:"max_agent_iterations,omitempty"`
+	MaxRuntimeMinutes            int            `yaml:"max_runtime_minutes,omitempty"`
+	EnforceRequirementRefs       bool           `yaml:"enforce_requirement_refs,omitempty"`
+	EnforceDeduplication         bool           `yaml:"enforce_deduplication,omitempty"`
+	RequireAuditForSprintClose   bool           `yaml:"require_audit_for_sprint_close,omitempty"`
+	MaxIterationsWithoutProgress int            `yaml:"max_iterations_without_progress,omitempty"`
+	MaxNoSubmitIterations        int            `yaml:"max_no_submit_iterations,omitempty"`
+	IdleBackoffBaseSec           int            `yaml:"idle_backoff_base_seconds,omitempty"`
+	IdleBackoffMaxSec            int            `yaml:"idle_backoff_max_seconds,omitempty"`
+	CopilotDefaultModel          string         `yaml:"copilot_default_model,omitempty"`
+	MCPInactivityTimeoutSec      int            `yaml:"mcp_inactivity_timeout,omitempty"`
+	RaceDetector                 *bool          `yaml:"race_detector,omitempty"`
+	PlannerPollInterval          int            `yaml:"planner_poll_interval,omitempty"`
+	PlannerMaxWait               int            `yaml:"planner_max_wait,omitempty"`
+	AuditorPollInterval          int            `yaml:"auditor_poll_interval,omitempty"`
+	AuditorMaxWait               int            `yaml:"auditor_max_wait,omitempty"`
+	CrashRetryLimit              int            `yaml:"crash_retry_limit,omitempty"`
+	CrashRetryBaseDelaySec       int            `yaml:"crash_retry_base_delay_seconds,omitempty"`
+	CrashRetryMaxDelaySec        int            `yaml:"crash_retry_max_delay_seconds,omitempty"`
+	Extra                        map[string]any `yaml:",inline"`
 }

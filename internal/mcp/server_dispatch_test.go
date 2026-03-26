@@ -29,11 +29,11 @@ func newInitializedServer(t *testing.T) *Server {
 	if err := os.MkdirAll(filepath.Join(dir, ".liza"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return NewServer(dir, filepath.Join(dir, ".liza", "log.yaml"))
+	return NewServer(dir, filepath.Join(dir, ".liza", "log.yaml"), "")
 }
 
 func TestHandleRequest_Routing(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	tests := []struct {
 		name      string
@@ -95,7 +95,7 @@ func TestHandleRequest_Routing(t *testing.T) {
 }
 
 func TestHandleRequest_Initialize(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	req := &protocol.JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -127,7 +127,7 @@ func TestHandleRequest_Initialize(t *testing.T) {
 }
 
 func TestHandleRequest_ToolCall_InvalidParams(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	tests := []struct {
 		name   string
@@ -164,7 +164,7 @@ func TestHandleRequest_ToolCall_InvalidParams(t *testing.T) {
 }
 
 func TestHandleRequest_ToolCall_MissingName(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	req := &protocol.JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -370,7 +370,7 @@ func TestHandleRequest_ToolCall_AddTaskPostWriteValidationFailure(t *testing.T) 
 		t.Fatalf("failed to seed invalid state: %v", err)
 	}
 
-	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"))
+	server := NewServer(projectRoot, filepath.Join(projectRoot, ".liza", "log.yaml"), "")
 	req := &protocol.JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      reqID(1),
@@ -477,7 +477,7 @@ func TestHandleRequest_ResourceRead_InvalidParams(t *testing.T) {
 }
 
 func TestHandleRequest_PreservesRequestID(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	id := reqID(42)
 	req := &protocol.JSONRPCRequest{
@@ -493,7 +493,7 @@ func TestHandleRequest_PreservesRequestID(t *testing.T) {
 }
 
 func TestClassifyError(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	tests := []struct {
 		name     string
@@ -565,43 +565,43 @@ func TestClassifyError(t *testing.T) {
 			name:     "not IMPLEMENTING",
 			err:      errors.New("task is not IMPLEMENTING"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "task is not IMPLEMENTING",
 		},
 		{
 			name:     "not REVIEWING_CODE",
 			err:      errors.New("task is not REVIEWING_CODE"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "task is not REVIEWING_CODE",
 		},
 		{
 			name:     "not CODE_READY_FOR_REVIEW",
 			err:      errors.New("task is not CODE_READY_FOR_REVIEW"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "task is not CODE_READY_FOR_REVIEW",
 		},
 		{
 			name:     "not APPROVED",
 			err:      errors.New("task is not APPROVED"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "task is not APPROVED",
 		},
 		{
 			name:     "must be",
 			err:      errors.New("status must be READY"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "status must be READY",
 		},
 		{
 			name:     "is required",
 			err:      errors.New("agent_id is required"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "agent_id is required",
 		},
 		{
 			name:     "invalid task ID",
 			err:      errors.New("invalid task ID format"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "invalid task ID format",
 		},
 		// PreconditionError (typed — exposes Reason)
 		{
@@ -621,13 +621,13 @@ func TestClassifyError(t *testing.T) {
 			name:     "must include fallback",
 			err:      errors.New("commit must include test files"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "commit must include test files",
 		},
 		{
 			name:     "mandatory fallback",
 			err:      errors.New("TDD is mandatory for coding tasks"),
 			wantCode: protocol.ValidationError,
-			wantMsg:  "validation failed: precondition not met",
+			wantMsg:  "TDD is mandatory for coding tasks",
 		},
 		// RoleError (typed — exposes message)
 		{
@@ -682,7 +682,7 @@ func TestClassifyError(t *testing.T) {
 			name:     "generic error",
 			err:      errors.New("something unexpected happened"),
 			wantCode: protocol.InternalError,
-			wantMsg:  "internal error",
+			wantMsg:  "something unexpected happened",
 		},
 	}
 
@@ -700,25 +700,37 @@ func TestClassifyError(t *testing.T) {
 }
 
 func TestClassifyError_DoesNotLeakInternalDetails(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
-	sensitiveErrors := []error{
-		errors.New("task not found: secret-task-id-12345"),
-		errors.New("lock timed out on /home/user/.liza/state.yaml"),
-		errors.New("something unexpected at internal/commands/foo.go:42"),
-		&ops.OperationalError{Message: "failed to load config", Err: errors.New("/home/user/.liza/pipeline.yaml: permission denied")},
+	// Errors matching known patterns are replaced with sanitized messages
+	sanitizedCases := []struct {
+		err     error
+		wantMsg string
+	}{
+		{errors.New("task not found: secret-task-id-12345"), "resource not found"},
+		{errors.New("lock timed out on /home/user/.liza/state.yaml"), "lock acquisition timed out"},
 	}
 
-	for _, err := range sensitiveErrors {
-		jerr := server.classifyError(err)
-		if jerr.Message == err.Error() {
-			t.Errorf("classifyError leaked raw error: %q", err.Error())
+	for _, tc := range sanitizedCases {
+		jerr := server.classifyError(tc.err)
+		if jerr.Message == tc.err.Error() {
+			t.Errorf("classifyError leaked raw error: %q", tc.err.Error())
 		}
+		if jerr.Message != tc.wantMsg {
+			t.Errorf("classifyError(%q) = %q, want %q", tc.err.Error(), jerr.Message, tc.wantMsg)
+		}
+	}
+
+	// Generic errors are passed through for agent visibility
+	genericErr := errors.New("something unexpected at internal/commands/foo.go:42")
+	jerr := server.classifyError(genericErr)
+	if jerr.Message != genericErr.Error() {
+		t.Errorf("generic error should pass through: got %q, want %q", jerr.Message, genericErr.Error())
 	}
 }
 
 func TestClassifyError_PreconditionErrorExposesReason(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	reason := "task t1: code tasks must include test files — TDD is mandatory"
 	precondErr := &ops.PreconditionError{Reason: reason}
@@ -738,7 +750,7 @@ func TestClassifyError_PreconditionErrorExposesReason(t *testing.T) {
 }
 
 func TestHandleNotification(t *testing.T) {
-	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml")
+	server := NewServer("/tmp/test", "/tmp/test/.liza/log.yaml", "")
 
 	// Should not panic for known notifications
 	knownNotifications := []string{

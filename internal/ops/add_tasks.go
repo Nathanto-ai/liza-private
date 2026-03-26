@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -18,16 +19,22 @@ import (
 
 // AddTaskInput represents the input parameters for adding a task.
 type AddTaskInput struct {
-	ID          string
-	Type        string
-	RolePair    string
-	Description string
-	SpecRef     string
-	PlanRef     string
-	DoneWhen    string
-	Scope       string
-	Priority    int
-	DependsOn   []string
+	ID                 string
+	Type               string
+	RolePair           string
+	Description        string
+	SpecRef            string
+	PlanRef            string
+	DoneWhen           string
+	Scope              string
+	Priority           int
+	DependsOn          []string
+	RequirementRefs    []string
+	AcceptanceCriteria []string
+	VerifyCommands     []string
+	ErrorBehavior      string
+	OriginTaskID       string
+	OriginFindingID    string
 }
 
 // AddTaskResult contains the outcome of adding a task.
@@ -52,7 +59,7 @@ func (e *PostWriteValidationError) Unwrap() error {
 
 // AddTask atomically persists a new task after validating inputs and checking
 // for duplicates. Also updates sprint.scope.planned, goal.alignment_history,
-// and appends to the activity log. No terminal I/O.
+// links originating audit findings, and appends to the activity log.
 func AddTask(statePath, logPath string, input *AddTaskInput, orchestratorID string) (*AddTaskResult, error) {
 	if orchestratorID == "" {
 		return nil, &PreconditionError{Reason: "orchestrator agent ID is required"}
@@ -79,6 +86,9 @@ func AddTask(statePath, logPath string, input *AddTaskInput, orchestratorID stri
 	if input.Type == "" {
 		input.Type = string(models.TaskTypeCoding)
 	}
+	if input.PlanRef == "" {
+		input.PlanRef = input.SpecRef
+	}
 
 	taskType := models.TaskType(input.Type)
 	if !taskType.IsValid() {
@@ -86,7 +96,6 @@ func AddTask(statePath, logPath string, input *AddTaskInput, orchestratorID stri
 			input.Type, strings.Join(models.ValidTaskTypeNames(), ", "))}
 	}
 
-	// Derive project root from state path (.liza/state.yaml → project root)
 	projectRoot := filepath.Dir(filepath.Dir(statePath))
 	resolver, _, err := loadResolver(projectRoot)
 	if err != nil {
@@ -94,16 +103,26 @@ func AddTask(statePath, logPath string, input *AddTaskInput, orchestratorID stri
 	}
 
 	if input.RolePair == "" {
-		return nil, &PreconditionError{
-			Reason: fmt.Sprintf("role_pair is required; available: %s",
-				strings.Join(resolver.RolePairNames(), ", ")),
+		for _, candidate := range resolver.RolePairNames() {
+			switch taskType {
+			case models.TaskTypePlanning:
+				if strings.Contains(candidate, "planning") {
+					input.RolePair = candidate
+					break
+				}
+			default:
+				if strings.Contains(candidate, "coding") {
+					input.RolePair = candidate
+					break
+				}
+			}
+		}
+		if input.RolePair == "" {
+			return nil, &PreconditionError{Reason: fmt.Sprintf("role_pair is required; available: %s", strings.Join(resolver.RolePairNames(), ", "))}
 		}
 	}
 	if _, rpErr := resolver.RolePair(input.RolePair); rpErr != nil {
-		return nil, &PreconditionError{
-			Reason: fmt.Sprintf("unknown role_pair %q; available role_pairs: %s",
-				input.RolePair, strings.Join(resolver.RolePairNames(), ", ")),
-		}
+		return nil, &PreconditionError{Reason: fmt.Sprintf("unknown role_pair %q; available role_pairs: %s", input.RolePair, strings.Join(resolver.RolePairNames(), ", "))}
 	}
 
 	normalizedDeps := []string{}
@@ -115,9 +134,73 @@ func AddTask(statePath, logPath string, input *AddTaskInput, orchestratorID stri
 	}
 
 	now := time.Now().UTC()
-	agentID := orchestratorID
-
 	bb := db.For(statePath)
+
+	state, err := bb.Read()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read state for enforcement checks: %w", err)
+	}
+
+	if state.Config.EnforceRequirementRefs && len(input.RequirementRefs) == 0 {
+		return nil, fmt.Errorf("task %s: requirement_refs required (enforce_requirement_refs is enabled in config)", input.ID)
+	}
+
+	for _, existing := range state.Tasks {
+		if existing.Status.IsComplete() {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(existing.Description), strings.TrimSpace(input.Description)) {
+			return nil, fmt.Errorf("task %s is a duplicate of existing task %s (same description)", input.ID, existing.ID)
+		}
+	}
+
+	if input.OriginTaskID != "" {
+		for _, existing := range state.Tasks {
+			if existing.ID != input.OriginTaskID {
+				continue
+			}
+			if existing.Status == models.TaskStatusImplementing ||
+				existing.Status == models.TaskStatusReadyForReview ||
+				existing.Status == models.TaskStatusReviewing ||
+				existing.Status == models.TaskStatusRejected {
+				return nil, fmt.Errorf(
+					"task %s: origin task %s is still active (status: %s) — wait for it to complete or be blocked before creating remediation",
+					input.ID, existing.ID, existing.Status,
+				)
+			}
+		}
+	}
+
+	if err := rejectFrameworkMetaTask(input); err != nil {
+		return nil, err
+	}
+
+	if state.Config.EnforceDeduplication {
+		for _, existing := range state.Tasks {
+			if existing.Status.IsComplete() {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(existing.Description), strings.TrimSpace(input.Description)) &&
+				strings.EqualFold(strings.TrimSpace(existing.Scope), strings.TrimSpace(input.Scope)) {
+				return nil, fmt.Errorf(
+					"task %s is a duplicate of existing task %s (same description + scope; enforce_deduplication is enabled)",
+					input.ID, existing.ID,
+				)
+			}
+		}
+	}
+
+	specFile := input.SpecRef
+	if idx := strings.Index(specFile, "#"); idx != -1 {
+		specFile = specFile[:idx]
+	}
+	specPath := specFile
+	if !filepath.IsAbs(specPath) {
+		specPath = filepath.Join(projectRoot, specFile)
+	}
+	if _, statErr := os.Stat(specPath); os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("task %s: spec_ref file not found: %s", input.ID, specFile)
+	}
 
 	initialStatus, err := resolver.InitialStatus(input.RolePair)
 	if err != nil {
@@ -125,19 +208,25 @@ func AddTask(statePath, logPath string, input *AddTaskInput, orchestratorID stri
 	}
 
 	newTask := models.Task{
-		ID:          input.ID,
-		Type:        taskType,
-		RolePair:    input.RolePair,
-		Description: input.Description,
-		Status:      initialStatus,
-		Priority:    input.Priority,
-		SpecRef:     paths.NormalizeSpecRef(input.SpecRef),
-		PlanRef:     paths.NormalizeSpecRef(input.PlanRef),
-		DoneWhen:    input.DoneWhen,
-		Scope:       input.Scope,
-		DependsOn:   normalizedDeps,
-		Created:     now,
-		History:     []models.TaskHistoryEntry{},
+		ID:                 input.ID,
+		Type:               taskType,
+		RolePair:           input.RolePair,
+		Description:        input.Description,
+		Status:             initialStatus,
+		Priority:           input.Priority,
+		SpecRef:            paths.NormalizeSpecRef(input.SpecRef),
+		PlanRef:            paths.NormalizeSpecRef(input.PlanRef),
+		DoneWhen:           input.DoneWhen,
+		Scope:              input.Scope,
+		DependsOn:          normalizedDeps,
+		RequirementRefs:    input.RequirementRefs,
+		AcceptanceCriteria: input.AcceptanceCriteria,
+		VerifyCommands:     input.VerifyCommands,
+		ErrorBehavior:      input.ErrorBehavior,
+		OriginTaskID:       input.OriginTaskID,
+		OriginFindingID:    input.OriginFindingID,
+		Created:            now,
+		History:            []models.TaskHistoryEntry{},
 	}
 
 	err = bb.Modify(func(state *models.State) error {
@@ -157,9 +246,17 @@ func AddTask(statePath, logPath string, input *AddTaskInput, orchestratorID stri
 		}
 		state.Goal.AlignmentHistory = append(state.Goal.AlignmentHistory, alignmentEntry)
 
+		if input.OriginFindingID != "" {
+			for i := range state.AuditFindings {
+				if state.AuditFindings[i].ID == input.OriginFindingID {
+					state.AuditFindings[i].LinkedTaskID = input.ID
+					break
+				}
+			}
+		}
+
 		return nil
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to add task: %w", err)
 	}
@@ -169,12 +266,11 @@ func AddTask(statePath, logPath string, input *AddTaskInput, orchestratorID stri
 	logger := log.New(logPath)
 	logEntry := log.Entry{
 		Timestamp: now,
-		Agent:     agentID,
+		Agent:     orchestratorID,
 		Action:    "task_added",
 		Task:      &input.ID,
 		Detail:    input.Description,
 	}
-
 	if err := logger.Append(logEntry); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("activity log write failed: %v", err))
 	}
@@ -201,12 +297,11 @@ type AddTasksResult struct {
 type AddTaskItemResult struct {
 	TaskID   string
 	Success  bool
-	Error    string // empty on success
+	Error    string
 	Warnings []string
 }
 
-// AddTasks adds multiple tasks in a single call. Each task is added
-// independently; failed tasks don't block subsequent ones.
+// AddTasks adds multiple tasks in a single call. Each task is added independently.
 func AddTasks(statePath, logPath string, input *AddTasksInput) (*AddTasksResult, error) {
 	if len(input.Tasks) == 0 {
 		return nil, &PreconditionError{Reason: "at least one task is required"}
@@ -220,9 +315,6 @@ func AddTasks(statePath, logPath string, input *AddTasksInput) (*AddTasksResult,
 		r, err := AddTask(statePath, logPath, &input.Tasks[i], orchestratorID)
 		item := AddTaskItemResult{TaskID: input.Tasks[i].ID}
 		if err != nil {
-			// PostWriteValidationError means the task was persisted but state
-			// validation failed. State is suspect — halt the batch and propagate
-			// as a top-level error so the MCP layer can classify it properly.
 			var postWriteErr *PostWriteValidationError
 			if errors.As(err, &postWriteErr) {
 				item.Error = err.Error()
@@ -238,4 +330,35 @@ func AddTasks(statePath, logPath string, input *AddTasksInput) (*AddTasksResult,
 		result.Results = append(result.Results, item)
 	}
 	return result, nil
+}
+
+var frameworkTerms = []string{
+	"liza_submit_for_review",
+	"liza_submit_work",
+	"liza_submit_verdict",
+	"task_complete loop",
+	"task_complete tool",
+	"mcp tool",
+	"mcp validation",
+	"mcp server",
+	"coder agent",
+	"coder submission",
+	"coder workflow",
+	"supervisor",
+	"submission workflow",
+	"copilot-native",
+}
+
+func rejectFrameworkMetaTask(input *AddTaskInput) error {
+	descLower := strings.ToLower(input.Description)
+	doneLower := strings.ToLower(input.DoneWhen)
+	for _, term := range frameworkTerms {
+		if strings.Contains(descLower, term) || strings.Contains(doneLower, term) {
+			return fmt.Errorf(
+				"task %s rejected: description or done_when references framework-internal term %q — coders cannot implement tasks that target liza orchestrator behavior",
+				input.ID, term,
+			)
+		}
+	}
+	return nil
 }

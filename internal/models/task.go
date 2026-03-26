@@ -76,18 +76,19 @@ func (tt TaskType) HasRole(role string) bool {
 type TaskStatus string
 
 const (
-	TaskStatusDraft             TaskStatus = "DRAFT"
-	TaskStatusReady             TaskStatus = "DRAFT_CODE"
-	TaskStatusImplementing      TaskStatus = "IMPLEMENTING_CODE"
-	TaskStatusReadyForReview    TaskStatus = "CODE_READY_FOR_REVIEW"
-	TaskStatusReviewing         TaskStatus = "REVIEWING_CODE"
-	TaskStatusRejected          TaskStatus = "CODE_REJECTED"
-	TaskStatusApproved          TaskStatus = "CODE_APPROVED"
-	TaskStatusMerged            TaskStatus = "MERGED"
-	TaskStatusBlocked           TaskStatus = "BLOCKED"
-	TaskStatusAbandoned         TaskStatus = "ABANDONED"
-	TaskStatusSuperseded        TaskStatus = "SUPERSEDED"
-	TaskStatusIntegrationFailed TaskStatus = "INTEGRATION_FAILED"
+	TaskStatusDraft              TaskStatus = "DRAFT"
+	TaskStatusReady              TaskStatus = "DRAFT_CODE"
+	TaskStatusImplementing       TaskStatus = "IMPLEMENTING_CODE"
+	TaskStatusReadyForReview     TaskStatus = "CODE_READY_FOR_REVIEW"
+	TaskStatusReviewing          TaskStatus = "REVIEWING_CODE"
+	TaskStatusRejected           TaskStatus = "CODE_REJECTED"
+	TaskStatusApproved           TaskStatus = "CODE_APPROVED"
+	TaskStatusMerged             TaskStatus = "MERGED"
+	TaskStatusBlocked            TaskStatus = "BLOCKED"
+	TaskStatusAbandoned          TaskStatus = "ABANDONED"
+	TaskStatusSuperseded         TaskStatus = "SUPERSEDED"
+	TaskStatusIntegrationFailed  TaskStatus = "INTEGRATION_FAILED"
+	TaskStatusNeedsHumanDecision TaskStatus = "NEEDS_HUMAN_DECISION"
 
 	// Code-planning pair states
 	TaskStatusDraftCodingPlan     TaskStatus = "DRAFT_CODING_PLAN"
@@ -109,6 +110,7 @@ func (ts TaskStatus) IsValid() bool {
 		TaskStatusReadyForReview, TaskStatusReviewing, TaskStatusRejected,
 		TaskStatusApproved, TaskStatusMerged, TaskStatusBlocked,
 		TaskStatusAbandoned, TaskStatusSuperseded, TaskStatusIntegrationFailed,
+		TaskStatusNeedsHumanDecision,
 		TaskStatusDraftCodingPlan, TaskStatusCodePlanning,
 		TaskStatusCodingPlanToReview, TaskStatusReviewingCodingPlan,
 		TaskStatusCodingPlanApproved, TaskStatusCodingPlanRejected,
@@ -120,13 +122,53 @@ func (ts TaskStatus) IsValid() bool {
 
 // IsTerminal checks if the task status is terminal (no further transitions)
 func (ts TaskStatus) IsTerminal() bool {
+	return ts == TaskStatusAbandoned || ts == TaskStatusSuperseded
+}
+
+// IsComplete checks if the task status represents completed work.
+// MERGED tasks are complete even though they can be reopened by audit findings.
+// Use this for sprint completion checks; use IsTerminal for state machine finality.
+func (ts TaskStatus) IsComplete() bool {
 	return ts == TaskStatusMerged || ts == TaskStatusAbandoned || ts == TaskStatusSuperseded
+}
+
+// taskTransitions defines the complete, explicit task state machine.
+// Every valid status transition is declared here. Terminal states have empty target lists.
+var taskTransitions = map[TaskStatus][]TaskStatus{
+	TaskStatusDraft:              {TaskStatusReady, TaskStatusAbandoned},
+	TaskStatusReady:              {TaskStatusImplementing, TaskStatusSuperseded, TaskStatusAbandoned},
+	TaskStatusImplementing:       {TaskStatusReadyForReview, TaskStatusBlocked, TaskStatusReady, TaskStatusNeedsHumanDecision},
+	TaskStatusReadyForReview:     {TaskStatusReviewing},
+	TaskStatusReviewing:          {TaskStatusApproved, TaskStatusRejected, TaskStatusReadyForReview},
+	TaskStatusRejected:           {TaskStatusImplementing, TaskStatusBlocked, TaskStatusSuperseded, TaskStatusAbandoned},
+	TaskStatusApproved:           {TaskStatusMerged, TaskStatusIntegrationFailed},
+	TaskStatusBlocked:            {TaskStatusSuperseded, TaskStatusAbandoned, TaskStatusNeedsHumanDecision},
+	TaskStatusIntegrationFailed:  {TaskStatusImplementing, TaskStatusAbandoned},
+	TaskStatusMerged:             {TaskStatusReady}, // audit REOPEN_TASK can reopen a merged task
+	TaskStatusAbandoned:          {},
+	TaskStatusSuperseded:         {},
+	TaskStatusNeedsHumanDecision: {TaskStatusReady, TaskStatusAbandoned, TaskStatusSuperseded},
+}
+
+// CanTransition reports whether a transition from ts to the given target status is valid.
+func (ts TaskStatus) CanTransition(to TaskStatus) bool {
+	return slices.Contains(taskTransitions[ts], to)
+}
+
+// Transition validates and applies a status transition on the task.
+// Returns a descriptive error if the transition is invalid.
+func (t *Task) Transition(to TaskStatus) error {
+	if !t.Status.CanTransition(to) {
+		return fmt.Errorf("invalid task transition: %s → %s (task %s)", t.Status, to, t.ID)
+	}
+	t.Status = to
+	return nil
 }
 
 // IsSprintTerminal checks if the task status is terminal for sprint completion purposes.
 // MERGED is the universal sprint-terminal state for all role-pairs.
 func (ts TaskStatus) IsSprintTerminal() bool {
-	return ts.IsTerminal()
+	return ts.IsComplete()
 }
 
 // IsPipelineValid checks if the status is valid in a pipeline context.
@@ -149,7 +191,7 @@ func (ts TaskStatus) CanPipelineTransition(to TaskStatus, transitions map[TaskSt
 // using pipeline-defined terminal states. Universal terminals (MERGED, ABANDONED,
 // SUPERSEDED) are always considered sprint-terminal.
 func (ts TaskStatus) IsPipelineSprintTerminal(terminalStates []TaskStatus) bool {
-	return ts.IsTerminal() || slices.Contains(terminalStates, ts)
+	return ts.IsComplete() || slices.Contains(terminalStates, ts)
 }
 
 // Approval records a single review approval with provider metadata.
@@ -162,49 +204,57 @@ type Approval struct {
 
 // Task represents a single task in the Liza system
 type Task struct {
-	ID                  string             `yaml:"id"`
-	Type                TaskType           `yaml:"type,omitempty"`
-	RolePair            string             `yaml:"role_pair,omitempty"`
-	Description         string             `yaml:"description"`
-	Status              TaskStatus         `yaml:"status"`
-	Priority            int                `yaml:"priority"`
-	AssignedTo          *string            `yaml:"assigned_to,omitempty"`
-	Worktree            *string            `yaml:"worktree,omitempty"`
-	BaseCommit          *string            `yaml:"base_commit,omitempty"`
-	Iteration           int                `yaml:"iteration,omitempty"`
-	Output              []OutputEntry      `yaml:"output,omitempty"`
-	ParentTask          *string            `yaml:"parent_task,omitempty"`
-	TransitionsExecuted map[string]bool    `yaml:"transitions_executed,omitempty"`
-	Exit42RestartCount  int                `yaml:"exit42_restart_count,omitempty"`
-	ReviewCyclesCurrent int                `yaml:"review_cycles_current,omitempty"`
-	ReviewCyclesTotal   int                `yaml:"review_cycles_total,omitempty"`
-	ReviewCommit        *string            `yaml:"review_commit,omitempty"`
-	ReviewingBy         *string            `yaml:"reviewing_by,omitempty"`
-	ReviewLeaseExpires  *time.Time         `yaml:"review_lease_expires,omitempty"`
-	ApprovedBy          *string            `yaml:"approved_by,omitempty"`
-	Approvals           []Approval         `yaml:"approvals,omitempty"`
-	MergeCommit         *string            `yaml:"merge_commit,omitempty"`
-	LeaseExpires        *time.Time         `yaml:"lease_expires,omitempty"`
-	SpecRef             string             `yaml:"spec_ref"`
-	PlanRef             string             `yaml:"plan_ref,omitempty"`
-	DoneWhen            string             `yaml:"done_when"`
-	Scope               string             `yaml:"scope"`
-	RejectionReason     *string            `yaml:"rejection_reason,omitempty"`
-	BlockedReason       *string            `yaml:"blocked_reason,omitempty"`
-	BlockedQuestions    []string           `yaml:"blocked_questions,omitempty"`
-	SupersededBy        []string           `yaml:"superseded_by,omitempty"`
-	Supersedes          *string            `yaml:"supersedes,omitempty"`
-	RescopeReason       *string            `yaml:"rescope_reason,omitempty"`
-	FailedBy            []string           `yaml:"failed_by,omitempty"`
-	Attempt             int                `yaml:"attempt,omitempty"`
-	DependsOn           []string           `yaml:"depends_on,omitempty"`
-	IntegrationFix      bool               `yaml:"integration_fix,omitempty"`
-	HandoffPending      bool               `yaml:"handoff_pending,omitempty"`
-	HandoffEvents       []HandoffEvent     `yaml:"handoff_events,omitempty"`
-	MaxIterations       int                `yaml:"max_iterations,omitempty"`
-	Created             time.Time          `yaml:"created"`
-	History             []TaskHistoryEntry `yaml:"history"`
-	Extra               map[string]any     `yaml:",inline"`
+	ID                  string              `yaml:"id"`
+	Type                TaskType            `yaml:"type,omitempty"`
+	RolePair            string              `yaml:"role_pair,omitempty"`
+	Description         string              `yaml:"description"`
+	Status              TaskStatus          `yaml:"status"`
+	Priority            int                 `yaml:"priority"`
+	AssignedTo          *string             `yaml:"assigned_to,omitempty"`
+	Worktree            *string             `yaml:"worktree,omitempty"`
+	BaseCommit          *string             `yaml:"base_commit,omitempty"`
+	Iteration           int                 `yaml:"iteration,omitempty"`
+	Output              []OutputEntry       `yaml:"output,omitempty"`
+	ParentTask          *string             `yaml:"parent_task,omitempty"`
+	TransitionsExecuted map[string]bool     `yaml:"transitions_executed,omitempty"`
+	Exit42RestartCount  int                 `yaml:"exit42_restart_count,omitempty"`
+	ReviewCyclesCurrent int                 `yaml:"review_cycles_current,omitempty"`
+	ReviewCyclesTotal   int                 `yaml:"review_cycles_total,omitempty"`
+	ReviewCommit        *string             `yaml:"review_commit,omitempty"`
+	ReviewingBy         *string             `yaml:"reviewing_by,omitempty"`
+	ReviewLeaseExpires  *time.Time          `yaml:"review_lease_expires,omitempty"`
+	ApprovedBy          *string             `yaml:"approved_by,omitempty"`
+	Approvals           []Approval          `yaml:"approvals,omitempty"`
+	MergeCommit         *string             `yaml:"merge_commit,omitempty"`
+	LeaseExpires        *time.Time          `yaml:"lease_expires,omitempty"`
+	SpecRef             string              `yaml:"spec_ref"`
+	PlanRef             string              `yaml:"plan_ref,omitempty"`
+	DoneWhen            string              `yaml:"done_when"`
+	Scope               string              `yaml:"scope"`
+	RejectionReason     *string             `yaml:"rejection_reason,omitempty"`
+	BlockedReason       *string             `yaml:"blocked_reason,omitempty"`
+	BlockedQuestions    []string            `yaml:"blocked_questions,omitempty"`
+	SupersededBy        []string            `yaml:"superseded_by,omitempty"`
+	Supersedes          *string             `yaml:"supersedes,omitempty"`
+	RescopeReason       *string             `yaml:"rescope_reason,omitempty"`
+	FailedBy            []string            `yaml:"failed_by,omitempty"`
+	Attempt             int                 `yaml:"attempt,omitempty"`
+	DependsOn           []string            `yaml:"depends_on,omitempty"`
+	IntegrationFix      bool                `yaml:"integration_fix,omitempty"`
+	HandoffPending      bool                `yaml:"handoff_pending,omitempty"`
+	HandoffEvents       []HandoffEvent      `yaml:"handoff_events,omitempty"`
+	MaxIterations       int                 `yaml:"max_iterations,omitempty"`
+	RequirementRefs     []string            `yaml:"requirement_refs,omitempty"`
+	AcceptanceCriteria  []string            `yaml:"acceptance_criteria,omitempty"`
+	VerifyCommands      []string            `yaml:"verify_commands,omitempty"`
+	ErrorBehavior       string              `yaml:"error_behavior,omitempty"`
+	VerificationResult  *VerificationResult `yaml:"verification_result,omitempty"`
+	OriginTaskID        string              `yaml:"origin_task_id,omitempty"`
+	OriginFindingID     string              `yaml:"origin_finding_id,omitempty"`
+	Attempted           []string            `yaml:"attempted,omitempty"`
+	Created             time.Time           `yaml:"created"`
+	History             []TaskHistoryEntry  `yaml:"history"`
+	Extra               map[string]any      `yaml:",inline"`
 }
 
 // OutputEntry represents a structured subtask definition produced by a doer role.
@@ -250,6 +300,23 @@ type PipelineResolver interface {
 	ApprovedStatus(rolePair string) (TaskStatus, error)
 	PartiallyApprovedStatus(rolePair string) (TaskStatus, error)
 	Reviewing2Status(rolePair string) (TaskStatus, error)
+}
+
+type legacyPipelineResolver struct{}
+
+func (legacyPipelineResolver) DoerRole(string) (string, error)            { return roles.RuntimeCoder, nil }
+func (legacyPipelineResolver) ReviewerRole(string) (string, error)        { return roles.RuntimeCodeReviewer, nil }
+func (legacyPipelineResolver) InitialStatus(string) (TaskStatus, error)   { return TaskStatusReady, nil }
+func (legacyPipelineResolver) RejectedStatus(string) (TaskStatus, error)  { return TaskStatusRejected, nil }
+func (legacyPipelineResolver) SubmittedStatus(string) (TaskStatus, error) { return TaskStatusReadyForReview, nil }
+func (legacyPipelineResolver) ReviewingStatus(string) (TaskStatus, error) { return TaskStatusReviewing, nil }
+func (legacyPipelineResolver) ExecutingStatus(string) (TaskStatus, error) { return TaskStatusImplementing, nil }
+func (legacyPipelineResolver) ApprovedStatus(string) (TaskStatus, error)  { return TaskStatusApproved, nil }
+func (legacyPipelineResolver) PartiallyApprovedStatus(string) (TaskStatus, error) {
+	return TaskStatusPartiallyApproved, nil
+}
+func (legacyPipelineResolver) Reviewing2Status(string) (TaskStatus, error) {
+	return TaskStatusReviewingCode2, nil
 }
 
 // EffectiveType returns the task's type, defaulting to TaskTypeCoding when empty (backward compat).
@@ -320,14 +387,48 @@ func (t *Task) TransitionWith(to TaskStatus, transitions map[TaskStatus][]TaskSt
 // IsClaimable checks if a task is claimable by the given role based on its
 // pipeline-defined states, type, and dependencies.
 // The role parameter uses the unified hyphenated form (e.g. "code-reviewer").
-func (t *Task) IsClaimable(role string, allTasks []Task, pr PipelineResolver) bool {
-	if t.RolePair == "" || pr == nil {
+func (t *Task) IsClaimable(role string, allTasks []Task, pr ...PipelineResolver) bool {
+	if t.Type != "" && !t.Type.IsValid() {
+		return false
+	}
+
+	var resolver PipelineResolver
+	if len(pr) > 0 {
+		resolver = pr[0]
+	}
+
+	if t.RolePair == "" {
+		if resolver != nil {
+			// Pipeline mode: tasks must have a RolePair to be claimable
+			return false
+		}
+		// Legacy fallback: no resolver, no RolePair → use status-based check
+		if t.AssignedTo != nil && strings.HasPrefix(*t.AssignedTo, "$") {
+			return false
+		}
+		switch role {
+		case roles.RuntimeCoder:
+			if t.Status != TaskStatusReady && t.Status != TaskStatusRejected && t.Status != TaskStatusIntegrationFailed {
+				return false
+			}
+		case roles.RuntimeCodeReviewer:
+			if t.Status != TaskStatusReadyForReview {
+				return false
+			}
+		default:
+			return false
+		}
+		return checkDependencies(t, allTasks)
+	}
+
+	// Task has RolePair but nil resolver → not claimable
+	if resolver == nil {
 		return false
 	}
 	if t.AssignedTo != nil && strings.HasPrefix(*t.AssignedTo, "$") {
 		return false
 	}
-	if !t.isClaimablePipeline(role, pr) {
+	if !t.isClaimablePipeline(role, resolver) {
 		return false
 	}
 	return checkDependencies(t, allTasks)
@@ -416,7 +517,7 @@ func checkDependencies(t *Task, allTasks []Task) bool {
 		for _, depID := range t.DependsOn {
 			depSatisfied := false
 			for _, task := range allTasks {
-				if task.ID == depID && task.Status == TaskStatusMerged {
+				if task.ID == depID && (task.Status == TaskStatusMerged || task.Status == TaskStatusSuperseded) {
 					depSatisfied = true
 					break
 				}

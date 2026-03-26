@@ -35,16 +35,22 @@ type Tool struct {
 // InputSchema represents the JSON schema for tool input
 type InputSchema struct {
 	Type       string              `json:"type"`
-	Properties map[string]Property `json:"properties,omitempty"`
+	Properties map[string]Property `json:"properties"`
 	Required   []string            `json:"required,omitempty"`
 }
 
 // Property represents a JSON schema property
 type Property struct {
-	Type        string   `json:"type"`
-	Description string   `json:"description,omitempty"`
-	Enum        []string `json:"enum,omitempty"`
-	Default     any      `json:"default,omitempty"`
+	Type        string         `json:"type"`
+	Description string         `json:"description,omitempty"`
+	Enum        []string       `json:"enum,omitempty"`
+	Default     any            `json:"default,omitempty"`
+	Items       *PropertyItems `json:"items,omitempty"`
+}
+
+// PropertyItems represents the items schema for array properties
+type PropertyItems struct {
+	Type string `json:"type"`
 }
 
 // Resource represents an MCP resource definition

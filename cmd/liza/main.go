@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/liza-mas/liza/internal/identity"
 	"github.com/liza-mas/liza/internal/ops"
@@ -29,6 +30,8 @@ for task isolation, and agent supervisors with restart logic.`,
 	SilenceErrors: true,
 }
 
+// Parent delete command
+
 var deleteCmd = &cobra.Command{
 	Use:   "delete",
 	Short: "Delete agents or tasks from the state database",
@@ -41,6 +44,16 @@ func requireProjectRoot() (string, error) {
 		return "", fmt.Errorf("failed to detect project root: %w", err)
 	}
 	return projectRoot, nil
+}
+
+// inferSpecType auto-detects spec type from filename.
+// Files containing "vision" → vision, "delivery" → delivery, otherwise delivery.
+func inferSpecType(specPath string) string {
+	lower := strings.ToLower(filepath.Base(specPath))
+	if strings.Contains(lower, "vision") {
+		return "vision"
+	}
+	return "delivery"
 }
 
 func requireAgentID(cmd *cobra.Command) (string, error) {
@@ -114,6 +127,7 @@ func defaultPipelineConfigPath() string {
 
 func init() {
 	rootCmd.AddCommand(deleteCmd)
+	rootCmd.AddCommand(validateSpecCmd)
 
 	// Global flags
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")

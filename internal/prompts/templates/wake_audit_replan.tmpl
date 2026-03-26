@@ -1,0 +1,16 @@
+{{- define "wake_audit_replan" -}}
+Audit findings classified as REPLAN_REQUIRED have been submitted.
+The auditor has identified issues that require changes to the current plan.
+
+YOUR TASK:
+1. Read the blackboard to see all REPLAN_REQUIRED audit findings (look for findings where resolved is false and linked_task_id is empty)
+2. For each unresolved finding, evaluate the evidence and recommended action
+3. Create new tasks OR supersede existing tasks as needed to address the findings
+4. CRITICAL: When creating a remediation task, you MUST pass the origin_finding_id parameter set to the finding's ID. This links the task to the finding and prevents this wake trigger from firing again for addressed findings.
+5. Each new task must meet all self-validation gates (spec ref, acceptance criteria, verify commands)
+6. After creating remediation tasks, update sprint metrics
+
+IMPORTANT: If you do NOT pass origin_finding_id when creating tasks, the findings will remain unresolved and this wake trigger will fire again in an infinite loop.
+
+Do NOT create a sprint checkpoint. There is still work to do.
+{{- end -}}

@@ -130,7 +130,7 @@ func Replan(projectRoot string, input *ReplanInput) (*ReplanResult, error) {
 
 		// Retarget downstream non-terminal tasks' DependsOn from old → new ID
 		for i := range state.Tasks {
-			if state.Tasks[i].Status.IsTerminal() {
+			if state.Tasks[i].Status.IsComplete() {
 				continue
 			}
 			changed := false
@@ -148,7 +148,7 @@ func Replan(projectRoot string, input *ReplanInput) (*ReplanResult, error) {
 		// Warn about terminal tasks that still depend on the old ID
 		var warnings []string
 		for i := range state.Tasks {
-			if !state.Tasks[i].Status.IsTerminal() {
+			if !state.Tasks[i].Status.IsComplete() {
 				continue
 			}
 			if slices.Contains(state.Tasks[i].DependsOn, task.ID) {

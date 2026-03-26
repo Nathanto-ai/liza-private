@@ -160,7 +160,7 @@ func buildInstructionsForWakeTrigger(wakeTrigger, agentID string, wakeData wakeT
 		wakeData.AgentID = agentID
 		return executeTemplate("wake_initial_planning", wakeData)
 	case "BLOCKED_TASKS":
-		return executeTemplate("wake_blocked_tasks", agentData)
+		return executeTemplate("wake_blocked_tasks", wakeBlockedData{AgentID: agentID})
 	case "HYPOTHESIS_EXHAUSTED":
 		return executeTemplate("wake_hypothesis_exhausted", agentData)
 	case "IMMEDIATE_DISCOVERY":

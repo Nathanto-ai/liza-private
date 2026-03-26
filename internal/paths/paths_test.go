@@ -3,6 +3,7 @@ package paths
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -307,7 +308,7 @@ func TestValidatePath(t *testing.T) {
 	}{
 		{
 			name:    "valid absolute path",
-			path:    "/tmp/test",
+			path:    filepath.Join(os.TempDir(), "test"),
 			wantErr: false,
 		},
 		{
@@ -334,7 +335,14 @@ func TestValidatePath(t *testing.T) {
 
 func TestLizaPathsMethods(t *testing.T) {
 	// Create mock LizaPaths instance (no git repo needed for path construction tests)
-	mockPaths := newTestLizaPaths("/mock/project")
+	// Use a platform-appropriate mock root
+	var mockRoot string
+	if runtime.GOOS == "windows" {
+		mockRoot = `C:\mock\project`
+	} else {
+		mockRoot = "/mock/project"
+	}
+	mockPaths := newTestLizaPaths(mockRoot)
 
 	tests := []struct {
 		name     string
@@ -344,42 +352,42 @@ func TestLizaPathsMethods(t *testing.T) {
 		{
 			name:     "StatePath returns State field",
 			method:   mockPaths.StatePath,
-			expected: "/mock/project/.liza/state.yaml",
+			expected: filepath.Join(mockRoot, ".liza", "state.yaml"),
 		},
 		{
 			name:     "LogPath returns Log field",
 			method:   mockPaths.LogPath,
-			expected: "/mock/project/.liza/log.yaml",
+			expected: filepath.Join(mockRoot, ".liza", "log.yaml"),
 		},
 		{
 			name:     "LockPath returns Lock field",
 			method:   mockPaths.LockPath,
-			expected: "/mock/project/.liza/state.yaml.lock",
+			expected: filepath.Join(mockRoot, ".liza", "state.yaml.lock"),
 		},
 		{
 			name:     "AlertsLogPath constructs alerts.log path",
 			method:   mockPaths.AlertsLogPath,
-			expected: "/mock/project/.liza/alerts.log",
+			expected: filepath.Join(mockRoot, ".liza", "alerts.log"),
 		},
 		{
 			name:     "SprintSummaryPath constructs sprint_summary.md path",
 			method:   mockPaths.SprintSummaryPath,
-			expected: "/mock/project/.liza/sprint_summary.md",
+			expected: filepath.Join(mockRoot, ".liza", "sprint_summary.md"),
 		},
 		{
 			name:     "CircuitBreakerReportPath constructs circuit_breaker_report.md path",
 			method:   mockPaths.CircuitBreakerReportPath,
-			expected: "/mock/project/.liza/circuit_breaker_report.md",
+			expected: filepath.Join(mockRoot, ".liza", "circuit_breaker_report.md"),
 		},
 		{
 			name:     "ArchiveDir constructs archive directory path",
 			method:   mockPaths.ArchiveDir,
-			expected: "/mock/project/.liza/archive",
+			expected: filepath.Join(mockRoot, ".liza", "archive"),
 		},
 		{
 			name:     "AgentPromptsDir constructs agent-prompts directory path",
 			method:   mockPaths.AgentPromptsDir,
-			expected: "/mock/project/.liza/agent-prompts",
+			expected: filepath.Join(mockRoot, ".liza", "agent-prompts"),
 		},
 	}
 
@@ -395,7 +403,13 @@ func TestLizaPathsMethods(t *testing.T) {
 
 // TestLizaPathsGenericGet tests the private get() method indirectly through StatePath
 func TestLizaPathsGenericGet(t *testing.T) {
-	mockPaths := newTestLizaPaths("/mock/project")
+	var mockRoot string
+	if runtime.GOOS == "windows" {
+		mockRoot = `C:\mock\project`
+	} else {
+		mockRoot = "/mock/project"
+	}
+	mockPaths := newTestLizaPaths(mockRoot)
 
 	// Test that get() works correctly by testing public methods that use it
 	tests := []struct {
@@ -406,17 +420,17 @@ func TestLizaPathsGenericGet(t *testing.T) {
 		{
 			name:     "StatePath uses get() with StateFileName",
 			method:   mockPaths.StatePath,
-			expected: "/mock/project/.liza/state.yaml",
+			expected: filepath.Join(mockRoot, ".liza", "state.yaml"),
 		},
 		{
 			name:     "LogPath uses get() with LogFileName",
 			method:   mockPaths.LogPath,
-			expected: "/mock/project/.liza/log.yaml",
+			expected: filepath.Join(mockRoot, ".liza", "log.yaml"),
 		},
 		{
 			name:     "AlertsLogPath uses get() with AlertsLogFileName",
 			method:   mockPaths.AlertsLogPath,
-			expected: "/mock/project/.liza/alerts.log",
+			expected: filepath.Join(mockRoot, ".liza", "alerts.log"),
 		},
 	}
 

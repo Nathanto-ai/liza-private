@@ -85,7 +85,7 @@ func InspectCommand(args []string, opts InspectOptions) (string, error) {
 
 // isKnownEntityType returns true if the query is a known entity type
 func isKnownEntityType(query string) bool {
-	knownTypes := []string{"config", "sprint", "tasks", "agents", "metrics", "anomalies"}
+	knownTypes := []string{"config", "sprint", "state", "tasks", "agents", "metrics", "anomalies", "traceability"}
 	return slices.Contains(knownTypes, query)
 }
 
@@ -130,6 +130,9 @@ func handleEntityQuery(state *models.State, entity string, args []string, opts I
 	case "tasks":
 		taskOpts := inspectTasksOptions{Format: opts.Format}
 		if len(args) > 0 {
+			if len(args) > 1 {
+				return "", fmt.Errorf("invalid query path: 'tasks/%s/%s' — subpaths are not supported. Use 'tasks/%s' to get the full task", args[0], args[1], args[0])
+			}
 			return asString(inspectTask(state, args[0], taskOpts))
 		}
 		return asString(inspectTasks(state, taskOpts))
@@ -143,6 +146,10 @@ func handleEntityQuery(state *models.State, entity string, args []string, opts I
 		return asString(inspectMetrics(state, inspectMetricsOptions{Format: opts.Format}))
 	case "anomalies":
 		return asString(inspectAnomalies(state, inspectAnomaliesOptions{Format: opts.Format}))
+	case "traceability":
+		return inspectTraceability(state, opts.Format)
+	case "state":
+		return formatOutput(state, opts.Format)
 	default:
 		return "", &errors.NotFoundError{Entity: entity}
 	}

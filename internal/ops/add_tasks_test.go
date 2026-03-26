@@ -274,20 +274,26 @@ func setupPipelineProject(t *testing.T) (stateFile, logFile string) {
 func TestAddTask_RolePairValidation(t *testing.T) {
 	stateFile, logFile := setupPipelineProject(t)
 
+	t.Run("empty role_pair auto-infers coding-pair", func(t *testing.T) {
+		input := AddTaskInput{
+			ID: "t1", Description: "d", SpecRef: "specs/feature.md",
+			DoneWhen: "w", Scope: "sc", Priority: 1,
+			// RolePair intentionally empty — auto-inference should assign "coding-pair"
+		}
+		result, err := AddTask(stateFile, logFile, &input, "orchestrator-1")
+		if err != nil {
+			t.Fatalf("expected auto-inference to succeed, got error: %v", err)
+		}
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+	})
+
 	tests := []struct {
 		name        string
 		input       AddTaskInput
 		errContains []string
 	}{
-		{
-			name: "role_pair required for pipeline goal",
-			input: AddTaskInput{
-				ID: "t1", Description: "d", SpecRef: "specs/feature.md",
-				DoneWhen: "w", Scope: "sc", Priority: 1,
-				// RolePair intentionally empty
-			},
-			errContains: []string{"role_pair is required", "code-planning-pair", "coding-pair"},
-		},
 		{
 			name: "invalid role_pair for pipeline goal",
 			input: AddTaskInput{
@@ -373,6 +379,7 @@ func TestAddTask_DuplicateID(t *testing.T) {
 	tmpDir := t.TempDir()
 	stateFile, _ := testhelpers.SetupLizaDir(t, tmpDir)
 	logFile := filepath.Join(tmpDir, ".liza", "log.jsonl")
+	testhelpers.CreateSpecFile(t, tmpDir, "feature.md", "# Feature\nSome feature spec.\n")
 
 	state := testhelpers.CreateValidState()
 	state.Tasks = []models.Task{
@@ -381,7 +388,7 @@ func TestAddTask_DuplicateID(t *testing.T) {
 	testhelpers.WriteInitialState(t, stateFile, state)
 
 	input := &AddTaskInput{
-		ID: "task-1", Description: "d", SpecRef: "s",
+		ID: "task-1", Description: "different desc", SpecRef: "specs/feature.md",
 		DoneWhen: "w", Scope: "sc", Priority: 1,
 		RolePair: "coding-pair",
 	}

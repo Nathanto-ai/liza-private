@@ -69,6 +69,27 @@ internal/
 │   └── concurrency_test.go
 ├── git/
 │   └── worktree.go / worktree_test.go
+├── specvalidate/              # Spec validation (delivery/vision)
+│   ├── validate.go / validate_test.go
+│   ├── parser.go / parser_test.go
+│   └── sections.go
+├── statevalidate/             # State validators (incl. task quality gate)
+│   ├── validate.go
+│   └── task_quality.go / task_quality_test.go
+├── verify/                    # Deterministic verification executor
+│   └── executor.go / executor_test.go
+├── auditor/                   # Auditor work selection & findings
+│   └── auditor.go / auditor_test.go
+├── planner/                   # Task creation policy, dedup, budget
+│   └── task_policy.go / task_policy_test.go
+├── runtime/                   # Budget tracking & anomaly detection
+│   ├── budgets.go / budgets_test.go
+│   └── anomaly_detector.go / anomaly_detector_test.go
+├── observability/             # Structured event logging (JSONL)
+│   ├── events.go
+│   ├── emitter.go
+│   ├── reader.go
+│   └── observability_test.go
 ├── testhelpers/               # Shared test utilities
 │   ├── fixtures.go            # State/task factory functions
 │   ├── setup.go               # Git repo, .liza dir, worktree setup
@@ -80,7 +101,8 @@ internal/
     ├── concurrent_operations_test.go
     ├── full_sprint_test.go        # //go:build e2e — full pipeline test
     ├── lease_expiry_test.go
-    └── sprint_and_merge_test.go
+    ├── sprint_and_merge_test.go
+    └── closed_loop_test.go    # Closed-loop integration (spec→audit→task→verify)
 ```
 
 ## Coverage Targets
@@ -95,6 +117,13 @@ internal/
 | internal/git | ~88% | Very Good |
 | internal/commands | ~84% | Very Good |
 | internal/db | ~83% | Very Good |
+| internal/specvalidate | — | New (table-driven) |
+| internal/statevalidate | — | New (quality gate) |
+| internal/verify | — | New (executor) |
+| internal/auditor | — | New (audit target + findings) |
+| internal/planner | — | New (task policy + dedup) |
+| internal/runtime | — | New (budgets + anomaly) |
+| internal/observability | — | New (JSONL emitter/reader) |
 | internal/agent | ~62% | Adequate |
 
 **Note**: High coverage != good tests. Tests must validate requirements, not just exercise code. Focus on critical paths (state machine, locking, validation), error handling, edge cases (empty lists, nil values, concurrent access), and integration points.
@@ -232,7 +261,7 @@ func TestFullWorkflow(t *testing.T) {
 }
 ```
 
-Integration tests cover: init -> add-task -> claim -> submit -> review -> merge, multiple agent interaction, concurrent operations, lease expiry, and sprint lifecycle.
+Integration tests cover: init -> add-task -> claim -> submit -> review -> merge, multiple agent interaction, concurrent operations, lease expiry, sprint lifecycle, and closed-loop improvement (spec → audit → task → verify).
 
 ### E2E Tests (build tag: `e2e`)
 
@@ -241,3 +270,44 @@ The full sprint sequence test (`full_sprint_test.go`) exercises the complete sup
 ```bash
 go test -tags e2e -v ./internal/integration/   # or: make test-e2e
 ```
+
+### Closed-Loop Integration Tests
+
+`internal/integration/closed_loop_test.go` contains cross-cutting tests that verify the full improvement pipeline working together:
+
+- **FindingToTask**: auditor finding → task proposal → dedup → budget check → observability
+- **DeduplicationPreventsRedundantTasks**: duplicate findings are suppressed
+- **BudgetPreventsRunaway**: budget limits halt task generation
+- **BudgetTrackerIntegration**: iteration, task, and time budget enforcement
+- **AnomalyDetectorIntegration**: stagnation and no-diff detection
+- **SpecValidation_Integration**: spec validation as quality gate
+- **Verification_Integration**: deterministic command execution
+- **QualityGate_AuditFindingValidation**: finding severity/type validation
+
+## Verification & Validation (V&V)
+
+The repo includes a V&V framework to prove the closed-loop system works end-to-end.
+
+### V&V Script
+
+```powershell
+# PowerShell (Windows)
+.\scripts\vnv.ps1
+
+# Makefile target (CI)
+make vnv
+```
+
+The V&V script checks:
+1. All new packages compile
+2. Unit tests pass for each package
+3. Integration tests pass
+4. Traceability matrix is complete (`specs/vnv-traceability.yaml`)
+
+### V&V Plan
+
+See [docs/VNV_PLAN.md](VNV_PLAN.md) for the full Verification & Validation plan covering objectives, test strategy, and release criteria.
+
+### Traceability Matrix
+
+`specs/vnv-traceability.yaml` maps each improvement task to its implementation package, test file, and acceptance criteria.

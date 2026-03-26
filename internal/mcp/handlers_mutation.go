@@ -418,3 +418,50 @@ func (s *Server) handleSetDiscoveryDisposition(params map[string]any) (any, erro
 
 	return textResult(fmt.Sprintf("Discovery %s disposition set to %q", discoveryID, disposition))
 }
+
+// handleSubmitAuditFinding implements the liza_submit_audit_finding tool.
+func (s *Server) handleSubmitAuditFinding(params map[string]any) (any, error) {
+	findingID, err := requireString(params, "finding_id")
+	if err != nil {
+		return nil, err
+	}
+	taskID, err := requireString(params, "task_id")
+	if err != nil {
+		return nil, err
+	}
+	severity, err := requireString(params, "severity")
+	if err != nil {
+		return nil, err
+	}
+	findingType, err := requireString(params, "type")
+	if err != nil {
+		return nil, err
+	}
+	evidence, err := requireString(params, "evidence")
+	if err != nil {
+		return nil, err
+	}
+
+	phase, _ := params["phase"].(string)
+	classification, _ := params["classification"].(string)
+	recommendedAction, _ := params["recommended_action"].(string)
+	specReference, _ := params["spec_reference"].(string)
+
+	result, err := ops.SubmitAuditFinding(s.projectRoot, ops.AuditFindingInput{
+		FindingID:         findingID,
+		TaskID:            taskID,
+		Severity:          severity,
+		Type:              findingType,
+		Phase:             phase,
+		Classification:    classification,
+		Evidence:          evidence,
+		RecommendedAction: recommendedAction,
+		SpecReference:     specReference,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("submit audit finding failed: %w", err)
+	}
+
+	return textResult(fmt.Sprintf("Audit finding %s submitted for task %s (severity: %s, classification: %s)",
+		result.FindingID, result.TaskID, result.Severity, result.Classification))
+}

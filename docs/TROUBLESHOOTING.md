@@ -74,7 +74,7 @@ tail -f coder-1.log
 
 ## Lock and Concurrency Issues
 
-Liza uses file-based locking with classified error types for targeted diagnostics.
+Liza uses file-based locking with classified error types for targeted diagnostics. On Windows, state.yaml reads and writes use a retry-with-backoff wrapper (300ms polling interval, retries on stale lock errors) to handle transient file sharing violations that can occur when multiple agents access the file concurrently.
 
 ### Lock Error Classification
 
