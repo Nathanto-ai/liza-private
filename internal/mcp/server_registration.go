@@ -128,7 +128,7 @@ func (s *Server) registerMutationTools() {
 					Properties: map[string]protocol.Property{
 						"tasks": {
 							Type:        "array",
-							Description: "Array of task objects. Each object has: id (string, required), desc (string, required), spec (string, required), done (string, required), scope (string, required), priority (number, default 1), depends (array of strings), type (string, default 'coding'), role_pair (string), plan_ref (string, optional)",
+						Description: "Array of task objects. Each object has: id (string, required), desc (string, required), spec (string, required), done (string, required), scope (string, required), priority (number, default 1), depends (array of strings), type (string: 'coding' or 'planning', default 'coding'), role_pair (string: e.g. 'coding-pair', 'code-planning-pair', 'epic-planning-pair', 'us-writing-pair'; auto-selected from type if omitted), plan_ref (string, optional)",
 							Items:       &protocol.PropertyItems{Type: "object"},
 						},
 						"agent_id": {

@@ -103,17 +103,18 @@ func AddTask(statePath, logPath string, input *AddTaskInput, orchestratorID stri
 	}
 
 	if input.RolePair == "" {
+	outer:
 		for _, candidate := range resolver.RolePairNames() {
 			switch taskType {
 			case models.TaskTypePlanning:
 				if strings.Contains(candidate, "planning") {
 					input.RolePair = candidate
-					break
+					break outer
 				}
 			default:
 				if strings.Contains(candidate, "coding") {
 					input.RolePair = candidate
-					break
+					break outer
 				}
 			}
 		}

@@ -107,6 +107,7 @@ func BuildPipelineTransitions(r *pipeline.Resolver) map[models.TaskStatus][]mode
 type PipelineDetectionContext struct {
 	SprintTerminals []models.TaskStatus
 	PlanningPairs   map[string]bool
+	InitialStatuses []models.TaskStatus
 }
 
 // LoadDetectionContext loads pipeline config once and returns both sprint-terminal
@@ -116,9 +117,18 @@ func LoadDetectionContext(projectRoot string) (*PipelineDetectionContext, error)
 	if err != nil {
 		return nil, fmt.Errorf("loading pipeline config for detection context: %w", err)
 	}
+	initialStatuses := make([]models.TaskStatus, 0, len(resolver.RolePairNames()))
+	for _, rpName := range resolver.RolePairNames() {
+		initial, iErr := resolver.InitialStatus(rpName)
+		if iErr == nil {
+			initialStatuses = append(initialStatuses, initial)
+		}
+	}
+
 	return &PipelineDetectionContext{
 		SprintTerminals: resolver.SprintTerminalStates(),
 		PlanningPairs:   resolver.TransitionSourcePairs(),
+		InitialStatuses: initialStatuses,
 	}, nil
 }
 

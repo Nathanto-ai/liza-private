@@ -68,7 +68,6 @@ totalTasks := len(state.Tasks)
 merged := countTasksByStatus(state.Tasks, models.TaskStatusMerged)
 blocked := countTasksByStatus(state.Tasks, models.TaskStatusBlocked)
 integrationFailed := countTasksByStatus(state.Tasks, models.TaskStatusIntegrationFailed)
-unclaimed := countTasksByStatus(state.Tasks, models.TaskStatusReady)
 
 inProgress := countTasksByStatus(state.Tasks, models.TaskStatusImplementing) +
 countTasksByStatus(state.Tasks, models.TaskStatusReadyForReview) +
@@ -80,10 +79,14 @@ immediateDiscoveries := countImmediateDiscoveries(state.Discovered)
 detCtx, detErr := ops.LoadDetectionContext(projectRoot)
 var sprintTerminals []models.TaskStatus
 var planningPairs map[string]bool
+var initialStatuses []models.TaskStatus
 if detErr == nil {
 sprintTerminals = detCtx.SprintTerminals
 planningPairs = detCtx.PlanningPairs
+initialStatuses = detCtx.InitialStatuses
 }
+
+unclaimed := countUnclaimedTasks(state.Tasks, initialStatuses)
 
 cycleBlocked := countCycleBlockedPlanning(state.Tasks, planningPairs)
 
@@ -135,7 +138,7 @@ b.WriteString(fmt.Sprintf("- Cycle-blocked planning: %d\n", cycleBlocked))
 b.WriteString(fmt.Sprintf(`
 ORCHESTRATOR COMMANDS (resolve AFTER initialization: ToolSearch select:mcp__liza__liza_get,mcp__liza__liza_status,mcp__liza__liza_add_tasks,mcp__liza__liza_supersede_task,mcp__liza__liza_assess_blocked,mcp__liza__liza_wt_delete,mcp__liza__liza_sprint_checkpoint,mcp__liza__liza_update_sprint_metrics):
 - liza_add_tasks — Add one or more tasks to blackboard (atomic per task, with validation)
-  Tool parameters: {"tasks": [{"id": "...", "desc": "...", "spec": "...", "done": "...", "scope": "...", "priority": N, "depends": [...]}], "agent_id": "%s"}
+  Tool parameters: {"tasks": [{"id": "...", "desc": "...", "spec": "...", "done": "...", "scope": "...", "priority": N, "depends": [...], "type": "coding|planning", "role_pair": "<role-pair-name>"}], "agent_id": "%s"}
 - liza_supersede_task — Supersede task
   Tool parameters: {"task_id": "...", "replacement_ids": [...], "reason": "...", "agent_id": "%s"}
 - liza_assess_blocked — Record orchestrator assessment of a BLOCKED task (prevents re-wake loops)
@@ -405,6 +408,25 @@ func countTasksByStatus(tasks []models.Task, status models.TaskStatus) int {
 count := 0
 for _, task := range tasks {
 if task.Status == status {
+count++
+}
+}
+return count
+}
+
+// countUnclaimedTasks counts tasks in any pipeline initial status.
+// Falls back to counting only DRAFT_CODE when initialStatuses is empty (legacy).
+func countUnclaimedTasks(tasks []models.Task, initialStatuses []models.TaskStatus) int {
+if len(initialStatuses) == 0 {
+return countTasksByStatus(tasks, models.TaskStatusReady)
+}
+statusSet := make(map[models.TaskStatus]bool, len(initialStatuses))
+for _, s := range initialStatuses {
+statusSet[s] = true
+}
+count := 0
+for _, task := range tasks {
+if statusSet[task.Status] {
 count++
 }
 }

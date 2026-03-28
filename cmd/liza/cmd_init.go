@@ -75,6 +75,7 @@ Existing workspaces can add post_worktree_cmd to state.yaml's config section.
 PAIRING MODE: Use agent flags without a description to create only the contract
 symlinks needed for pairing (no .liza/ workspace):
   liza init --claude           # creates CLAUDE.md → ~/.liza/CORE.md
+  liza init --copilot          # creates .github/copilot-instructions.md → ~/.liza/CORE.md
   liza init --claude --codex   # creates CLAUDE.md + AGENTS.md`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -83,7 +84,7 @@ symlinks needed for pairing (no .liza/ workspace):
 		// Pairing mode: agent flags without description
 		if len(args) == 0 {
 			if len(agents) == 0 {
-				return fmt.Errorf("requires a description argument or at least one agent flag (--claude, --codex, --gemini, --mistral)\nSee: liza init --help")
+				return fmt.Errorf("requires a description argument or at least one agent flag (--claude, --codex, --copilot, --gemini, --mistral)\nSee: liza init --help")
 			}
 			return commands.InitPairingCommand(commands.InitPairingParams{
 				Agents: agents,
@@ -169,7 +170,7 @@ Reports whether any changes were made.`,
 }
 
 // agentFlagNames is the canonical list of supported agent flag names.
-var agentFlagNames = []string{"claude", "codex", "gemini", "mistral"}
+var agentFlagNames = []string{"claude", "codex", "copilot", "gemini", "mistral"}
 
 // collectAgentFlags returns the agent names whose boolean flags are set on cmd.
 func collectAgentFlags(cmd *cobra.Command) []string {
@@ -194,6 +195,7 @@ func init() {
 	setupCmd.Flags().String("agent-tools", "", "path to custom AGENT_TOOLS.md (replaces embedded default)")
 	setupCmd.Flags().Bool("claude", false, "create skill symlinks in ~/.claude/")
 	setupCmd.Flags().Bool("codex", false, "create skill symlinks in ~/.codex/")
+	setupCmd.Flags().Bool("copilot", false, "create .github/copilot-instructions.md symlink")
 	setupCmd.Flags().Bool("gemini", false, "create skill symlinks in ~/.gemini/")
 	setupCmd.Flags().Bool("mistral", false, "create skill symlinks in ~/.vibe/")
 
@@ -204,6 +206,7 @@ func init() {
 	initCmd.Flags().String("post-worktree-cmd", "", "shell command to run after worktree creation (e.g. 'make setup')")
 	initCmd.Flags().Bool("claude", false, "create CLAUDE.md symlink to ~/.liza/CORE.md")
 	initCmd.Flags().Bool("codex", false, "create AGENTS.md symlink to ~/.liza/CORE.md")
+	initCmd.Flags().Bool("copilot", false, "create .github/copilot-instructions.md symlink to ~/.liza/CORE.md")
 	initCmd.Flags().Bool("gemini", false, "create GEMINI.md symlink to ~/.liza/CORE.md")
 	initCmd.Flags().Bool("mistral", false, "set up ~/.vibe/ for Liza contract")
 

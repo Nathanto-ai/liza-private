@@ -77,6 +77,7 @@ func InitPairingCommand(params InitPairingParams) error {
 	// Classify agents
 	var repoRootNames []string
 	hasClaude := false
+	hasCopilot := false
 	hasMistral := false
 	for _, agent := range params.Agents {
 		if name, ok := initAgentRepoSymlinks[agent]; ok {
@@ -85,6 +86,8 @@ func InitPairingCommand(params InitPairingParams) error {
 		switch agent {
 		case "claude":
 			hasClaude = true
+		case "copilot":
+			hasCopilot = true
 		case "mistral":
 			hasMistral = true
 		case "codex", "gemini":
@@ -96,7 +99,7 @@ func InitPairingCommand(params InitPairingParams) error {
 
 	// Resolve project root for repo-root operations
 	var projectRoot string
-	if len(repoRootNames) > 0 || hasClaude {
+	if len(repoRootNames) > 0 || hasClaude || hasCopilot {
 		lizaPaths, err := paths.LizaPathsFromGit()
 		if err != nil {
 			return fmt.Errorf("failed to determine project root: %w", err)
@@ -115,6 +118,10 @@ func InitPairingCommand(params InitPairingParams) error {
 		}
 	}
 
+	if hasCopilot {
+		setupCopilotContract(projectRoot, coreFile)
+	}
+
 	if hasMistral {
 		if err := setupMistralContract(coreFile, stdin); err != nil {
 			return fmt.Errorf("mistral setup failed: %w", err)
@@ -122,6 +129,27 @@ func InitPairingCommand(params InitPairingParams) error {
 	}
 
 	return nil
+}
+
+// setupCopilotContract creates .github/copilot-instructions.md → contractTarget symlink.
+func setupCopilotContract(projectRoot, contractTarget string) {
+	copilotDir := filepath.Join(projectRoot, ".github")
+	copilotLink := filepath.Join(copilotDir, "copilot-instructions.md")
+	if fi, err := os.Lstat(copilotLink); os.IsNotExist(err) {
+		if mkErr := os.MkdirAll(copilotDir, 0755); mkErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create .github directory: %v\n", mkErr)
+			return
+		}
+		if symErr := os.Symlink(contractTarget, copilotLink); symErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create .github/copilot-instructions.md symlink: %v\n", symErr)
+		}
+	} else if err == nil {
+		if fi.Mode()&os.ModeSymlink == 0 {
+			fmt.Fprintf(os.Stderr, "Warning: .github/copilot-instructions.md exists but is not a symlink, skipping\n")
+		} else if target, readErr := os.Readlink(copilotLink); readErr != nil || target != contractTarget {
+			fmt.Fprintf(os.Stderr, "Warning: .github/copilot-instructions.md exists but points elsewhere, skipping\n")
+		}
+	}
 }
 
 // isLizaSymlink returns true if path exists, is a symlink, and points to contractTarget.
@@ -149,6 +177,19 @@ func CheckContractConfigured(projectRoot, cliName string) string {
 
 	fileName, ok := initAgentRepoSymlinks[effectiveCLI]
 	if !ok {
+		// Copilot uses .github/copilot-instructions.md in the project root
+		if effectiveCLI == "copilot" {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return ""
+			}
+			contractTarget := filepath.Join(homeDir, ".liza", "CORE.md")
+			copilotPath := filepath.Join(projectRoot, ".github", "copilot-instructions.md")
+			if isLizaSymlink(copilotPath, contractTarget) {
+				return copilotPath
+			}
+			return ""
+		}
 		// Mistral uses ~/.vibe/prompts/liza.md instead of a repo-root symlink
 		if effectiveCLI == "mistral" {
 			homeDir, err := os.UserHomeDir()
@@ -515,24 +556,7 @@ func InitCommandWithConfig(params InitParams) error {
 	}
 
 	// Create .github/copilot-instructions.md symlink for Copilot CLI contract loading.
-	// Copilot CLI reads custom instructions from .github/copilot-instructions.md.
-	contractTarget := filepath.Join(globalDir, "CORE.md")
-	copilotDir := filepath.Join(lizaPaths.ProjectRoot(), ".github")
-	copilotInstructionsLink := filepath.Join(copilotDir, "copilot-instructions.md")
-	if fi, err := os.Lstat(copilotInstructionsLink); os.IsNotExist(err) {
-		if mkErr := os.MkdirAll(copilotDir, 0755); mkErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to create .github directory: %v\n", mkErr)
-		} else if symErr := os.Symlink(contractTarget, copilotInstructionsLink); symErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to create .github/copilot-instructions.md symlink: %v\n", symErr)
-		}
-	} else if err == nil {
-		// Already exists — check if it's already the correct symlink.
-		if fi.Mode()&os.ModeSymlink == 0 {
-			fmt.Fprintf(os.Stderr, "Warning: .github/copilot-instructions.md exists but is not a symlink, skipping\n")
-		} else if target, readErr := os.Readlink(copilotInstructionsLink); readErr != nil || target != contractTarget {
-			fmt.Fprintf(os.Stderr, "Warning: .github/copilot-instructions.md exists but points elsewhere, skipping\n")
-		}
-	}
+	setupCopilotContract(lizaPaths.ProjectRoot(), filepath.Join(globalDir, "CORE.md"))
 
 	// Write GUARDRAILS.md template to project root (non-fatal, like claude-settings)
 	if err := embedded.WriteGuardrails(lizaPaths.ProjectRoot()); err != nil {

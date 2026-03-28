@@ -125,6 +125,9 @@ Example YAML file format:
 		if cmd.Flags().Changed("type") {
 			input.Type, _ = cmd.Flags().GetString("type")
 		}
+		if cmd.Flags().Changed("role-pair") {
+			input.RolePair, _ = cmd.Flags().GetString("role-pair")
+		}
 		if cmd.Flags().Changed("acceptance-criteria") {
 			acStr, _ := cmd.Flags().GetString("acceptance-criteria")
 			if acStr != "" {
@@ -476,6 +479,7 @@ func init() {
 	addTaskCmd.Flags().Int("priority", 0, "task priority (default: 1, overrides file value)")
 	addTaskCmd.Flags().String("depends", "", "comma-separated list of task IDs this task depends on (overrides file value)")
 	addTaskCmd.Flags().String("type", "", "task type determining role workflow (default: coding)")
+	addTaskCmd.Flags().String("role-pair", "", "role-pair for task (e.g. coding-pair, code-planning-pair, epic-planning-pair, us-writing-pair; auto-selected from type if omitted)")
 	addTaskCmd.Flags().String("acceptance-criteria", "", "comma-separated acceptance criteria")
 	addTaskCmd.Flags().String("verify-commands", "", "comma-separated verification commands")
 	addTaskCmd.Flags().String("requirement-refs", "", "comma-separated requirement references")
