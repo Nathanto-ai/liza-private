@@ -148,6 +148,9 @@ func setupE2E(t *testing.T, state *models.State) *e2eEnv {
 	state.Config.ReviewerMaxWait = 3
 	state.Config.HeartbeatInterval = 60 // Keep heartbeat slow — not under test
 	state.Config.LeaseDuration = 600
+	state.Config.IdleBackoffBaseSec = 1  // Fast idle backoff for tests
+	state.Config.IdleBackoffMaxSec = 2   // Cap at 2s to avoid slow tests
+	state.Config.MaxIdleRetries = 3      // Exit quickly when no work available
 
 	// Write state
 	bb := testhelpers.WriteInitialState(t, statePath, state)

@@ -33,7 +33,7 @@ func isSystemStopped(state *models.State) (bool, string) {
 	return false, ""
 }
 
-// waitWhilePaused blocks while system is PAUSED or sprint is in CHECKPOINT status
+// waitWhilePaused blocks while system is PAUSED, sprint is in CHECKPOINT, or sprint is COMPLETED
 func waitWhilePaused(ctx context.Context, projectRoot string) error {
 	logger := GetLogger()
 	statePath := paths.New(projectRoot).StatePath()
@@ -57,6 +57,9 @@ func waitWhilePaused(ctx context.Context, projectRoot string) error {
 				} else if state.Sprint.Status == models.SprintStatusCheckpoint {
 					isPaused = true
 					pauseReason = "[CHECKPOINT] Sprint is at checkpoint"
+				} else if state.Sprint.Status == models.SprintStatusCompleted {
+					isPaused = true
+					pauseReason = "[COMPLETED] Sprint completed, waiting for advance to next sprint"
 				}
 			}
 		}

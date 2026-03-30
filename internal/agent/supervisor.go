@@ -884,9 +884,34 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 				GetLogger().Info(roleName+": no work available, backing off before retry",
 					"idle_count", consecutiveIdleCount,
 					"backoff", backoff)
-				time.Sleep(backoff)
+				if !sleepWithContext(ctx, backoff) {
+					return nil // context cancelled
+				}
 				continue
 			}
+
+			// For doer and orchestrator roles, check if the sprint still has
+			// non-terminal tasks (e.g. blocked by dependencies). If so, stay
+			// alive with backoff — those tasks will become claimable once
+			// their dependencies resolve. Give up after MaxIdleRetries to
+			// avoid spinning indefinitely on work that can't be claimed.
+			maxRetries := state.Config.MaxIdleRetries
+			if maxRetries <= 0 {
+				maxRetries = models.DefaultMaxIdleRetries
+			}
+			if sprintHasPendingWork(config.ProjectRoot) && consecutiveIdleCount < maxRetries {
+				consecutiveIdleCount++
+				backoff := computeIdleBackoff(consecutiveIdleCount, state.Config)
+				roleName := string(config.Role)
+				GetLogger().Info(roleName+": no immediate work but sprint has pending tasks, backing off",
+					"idle_count", consecutiveIdleCount,
+					"backoff", backoff)
+				if !sleepWithContext(ctx, backoff) {
+					return nil // context cancelled
+				}
+				continue
+			}
+
 			GetLogger().Info("No work available, supervisor exiting")
 			return nil
 		}
@@ -1292,6 +1317,27 @@ func blockTaskOnNoSubmit(bb *db.Blackboard, taskID, agentID string, count, limit
 	}
 }
 
+// sprintHasPendingWork checks whether the current sprint still has non-terminal
+// tasks. When true, agents should stay alive because blocked tasks may become
+// claimable once their dependencies complete.
+func sprintHasPendingWork(projectRoot string) bool {
+	lp := paths.New(projectRoot)
+	bb := db.For(lp.StatePath())
+	state, err := bb.Read()
+	if err != nil {
+		return false
+	}
+	if state.Sprint.Status == models.SprintStatusCompleted {
+		return false
+	}
+	detCtx, detErr := ops.LoadDetectionContext(projectRoot)
+	var pipelineTerminals []models.TaskStatus
+	if detErr == nil {
+		pipelineTerminals = detCtx.SprintTerminals
+	}
+	return !state.AllPlannedTasksTerminalWith(pipelineTerminals)
+}
+
 // computeIdleBackoff returns an exponential backoff duration for idle agents.
 func computeIdleBackoff(consecutiveIdleCount int, cfg models.Config) time.Duration {
 	baseSec := cfg.IdleBackoffBaseSec
@@ -1311,6 +1357,20 @@ func computeIdleBackoff(consecutiveIdleCount int, cfg models.Config) time.Durati
 		}
 	}
 	return delay
+}
+
+// sleepWithContext sleeps for the given duration but wakes immediately if the
+// context is cancelled. Returns true if the sleep completed, false if the
+// context was cancelled.
+func sleepWithContext(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // effectiveMCPInactivityTimeout returns the MCP inactivity timeout from config,

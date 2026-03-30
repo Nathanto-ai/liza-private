@@ -63,6 +63,15 @@ func (s *doerStrategy) PreWork(_ context.Context, _ *db.Blackboard, _ Supervisor
 }
 
 func (s *doerStrategy) WaitForWork(ctx context.Context, bb *db.Blackboard, config SupervisorConfig, pollInterval, maxWait time.Duration) (bool, error) {
+	// Clear stale doer claims before checking for work, similar to how
+	// waitForCoderWork clears stale coding claims. This prevents tasks from
+	// being permanently stuck when an agent process dies.
+	if cleared, err := ops.ClearStaleDoerClaims(config.ProjectRoot); err != nil {
+		GetLogger().Warn("Failed to clear stale doer claims before wait", "error", err)
+	} else if cleared > 0 {
+		GetLogger().Info("Cleared stale doer claims before wait", "count", cleared)
+	}
+
 	pr := loadResolver(config.ProjectRoot)
 	return waitForWorkEventDriven(ctx, bb, config.ProjectRoot, pollInterval, maxWait,
 		func(state *models.State) (bool, string) {

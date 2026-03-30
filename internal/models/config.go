@@ -94,6 +94,7 @@ const (
 	DefaultMaxIterationsWithoutProgress = 5
 	DefaultIdleBackoffBaseSec           = 30
 	DefaultIdleBackoffMaxSec            = 600 // 10 minutes
+	DefaultMaxIdleRetries               = 10
 	DefaultMCPInactivityTimeoutSec      = 600 // 10 minutes
 
 	// DefaultCopilotModel is the default model for the Copilot CLI backend.
@@ -152,6 +153,7 @@ type Config struct {
 	MaxNoSubmitIterations        int            `yaml:"max_no_submit_iterations,omitempty"`
 	IdleBackoffBaseSec           int            `yaml:"idle_backoff_base_seconds,omitempty"`
 	IdleBackoffMaxSec            int            `yaml:"idle_backoff_max_seconds,omitempty"`
+	MaxIdleRetries               int            `yaml:"max_idle_retries,omitempty"`
 	CopilotDefaultModel          string         `yaml:"copilot_default_model,omitempty"`
 	MCPInactivityTimeoutSec      int            `yaml:"mcp_inactivity_timeout,omitempty"`
 	RaceDetector                 *bool          `yaml:"race_detector,omitempty"`
